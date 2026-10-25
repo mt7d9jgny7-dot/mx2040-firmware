@@ -36,13 +36,26 @@ jobs:
           cd vial-qmk
           git submodule update --init --recursive
           qmk setup -y -H $(pwd)
-
+          
+      - name: 验证键盘配置
+        run: |
+          cd vial-qmk
+          qmk info -kb mx2040
+    
       - name: 编译固件
         run: |
           cd vial-qmk
           make mx2040:default
 
+      - name: 验证固件文件
+        run: |
+          cd vial-qmk
+          ls -lh .build/mx2040_default.uf2
+          test -s .build/mx2040_default.uf2
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
+          name: MX2040-Vial-Firmware
           path: vial-qmk/.build/mx2040_default.uf2
+
