@@ -4,24 +4,34 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # 锁定 Ubuntu 24.04，规避系统自动升级的兼容风险
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Checkout vial-qmk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: vial-kb/vial-qmk
           ref: vial
           path: vial-qmk
+          submodules: recursive
+
+      - name: 验证键盘源文件路径
+        run: |
+          echo "仓库根目录文件："
+          ls -la $GITHUB_WORKSPACE
+          echo "mx2040 目录检查："
+          ls -la $GITHUB_WORKSPACE/mx2040 || echo "错误：未找到 mx2040 键盘目录"
 
       - name: Copy keyboard source
         run: cp -r $GITHUB_WORKSPACE/mx2040 vial-qmk/keyboards/
 
-      - name: Setup QMK
+      - name: Setup QMK 环境
         run: |
           cd vial-qmk
           make git-submodule
+          python3 -m pip install qmk
 
       - name: Compile firmware
         run: |
