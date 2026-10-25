@@ -12,7 +12,7 @@
         "rows": ["GP0","GP1","GP2","GP3","GP4","GP5","GP6","GP7"],
         "cols": ["GP8","GP9","GP10","GP11","GP12","GP13","GP14","GP15","GP16","GP17","GP18","GP19","GP20","GP21","GP22","GP26","GP27","GP28"]
     },
-    "diode_direction": "NO_DIODE",
+    "diode_direction": "COL2ROW",
     "layouts": {
         "keymap": [
             [
@@ -171,7 +171,7 @@
         ]
     },
     "vial": {
-        "keyboard_uid": [0xAA,0xBB,0xCC,0xDD,0xEE,0xFF,0x11,0x22],
+        "keyboard_uid": ["0x7A3F9D2C", "0x5B8E1F4A"],
         "unlock_combo": {
             "rows": [6, 0],
             "cols": [1, 2]
