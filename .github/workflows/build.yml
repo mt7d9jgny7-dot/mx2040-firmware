@@ -25,22 +25,21 @@ jobs:
             gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi \
             dfu-util libusb-1.0-0-dev
 
-      - name: 配置 QMK 环境与命令
+      - name: 安装 QMK CLI 并配置全局命令
         run: |
-          cd vial-qmk
-          # 安装 Python 依赖库
-          python3 -m pip install --user -r requirements.txt
-          # 确保内置 qmk 脚本有执行权限
-          chmod +x bin/qmk
-          # 将仓库 bin 目录加入全局 PATH，后续所有步骤都能直接调用 qmk
-          echo "$GITHUB_WORKSPACE/vial-qmk/bin" >> $GITHUB_PATH
-
-      - name: 初始化 QMK 环境
-        run: |
-          cd vial-qmk
+          # 安装完整 qmk 命令行工具，--user 适配 Ubuntu 24.04 系统 Python 规则
+          python3 -m pip install --user qmk
+          # 软链接到系统全局路径，Makefile 内部调用也能识别
+          sudo ln -sf ~/.local/bin/qmk /usr/local/bin/qmk
           # 验证命令可用性
           qmk --version
-          # 初始化环境，指定当前目录为 QMK 根目录，不拉取新仓库
+
+      - name: 初始化子模块与 QMK 环境
+        run: |
+          cd vial-qmk
+          # 原生 git 命令初始化子模块，不依赖 qmk
+          git submodule update --init --recursive
+          # 完成环境校验，指定当前目录为 QMK 根目录，不拉取新仓库
           qmk setup -y -H $(pwd)
 
       - name: 编译固件
