@@ -16,7 +16,7 @@ jobs:
           path: vial-qmk
 
       - name: Copy keyboard source
-        run: cp -r $GITHUB_WORKSPACE/MX2040 vial-qmk/keyboards/
+        run: cp -r $GITHUB_WORKSPACE/mx2040 vial-qmk/keyboards/
 
       - name: 安装系统编译依赖
         run: |
@@ -27,27 +27,22 @@ jobs:
 
       - name: 安装 QMK CLI 并配置全局命令
         run: |
-          # 安装完整 qmk 命令行工具，--user 适配 Ubuntu 24.04 系统 Python 规则
           python3 -m pip install --user qmk
-          # 软链接到系统全局路径，Makefile 内部调用也能识别
           sudo ln -sf ~/.local/bin/qmk /usr/local/bin/qmk
-          # 验证命令可用性
           qmk --version
 
       - name: 初始化子模块与 QMK 环境
         run: |
           cd vial-qmk
-          # 原生 git 命令初始化子模块，不依赖 qmk
           git submodule update --init --recursive
-          # 完成环境校验，指定当前目录为 QMK 根目录，不拉取新仓库
           qmk setup -y -H $(pwd)
 
       - name: 编译固件
         run: |
           cd vial-qmk
-          make MX2040:default
+          make mx2040:default
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          path: vial-qmk/.build/MX2040_default.uf2
+          path: vial-qmk/.build/mx2040_default.uf2
