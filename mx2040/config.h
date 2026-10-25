@@ -1,15 +1,17 @@
 #pragma once
 
-#define MATRIX_ROWS 8
-#define MATRIX_COLS 18
+/* 矩阵行列数量 */
+#define MATRIX_ROWS 4
+#define MATRIX_COLS 5
 
-#define MATRIX_ROW_PINS { GP0, GP1, GP2, GP3, GP4, GP5, GP6, GP7 }
-#define MATRIX_COL_PINS { GP8,GP9,GP10,GP11,GP12,GP13,GP14,GP15, \
-                          GP16,GP17,GP18,GP19,GP20,GP21,GP22,GP26,GP27,GP28 }
+/* 按键去抖时间（单位：毫秒） */
+#define DEBOUNCE 5
 
-#define DIODE_DIRECTION NO_DIODE
-#define MATRIX_IO_DELAY 5
+/* 按键长按触发阈值 */
+#define TAPPING_TERM 200
 
-#define VIAL_KEYBOARD_UID {0xAA,0xBB,0xCC,0xDD,0xEE,0xFF,0x11,0x22}
-#define VIAL_UNLOCK_COMBO_ROWS { 6, 0 }
-#define VIAL_UNLOCK_COMBO_COLS { 1, 2 }
+/* RGB 灯效配置（无灯可删除）
+#define RGB_DI_PIN GP29
+#define RGBLED_NUM 1
+#define RGB_MATRIX_MAXIMUM_BRIGHTNESS 120
+*/
