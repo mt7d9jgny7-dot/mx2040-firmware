@@ -14,21 +14,26 @@ jobs:
           repository: vial-kb/vial-qmk
           ref: vial
           path: vial-qmk
-          submodules: recursive
 
       - name: Copy keyboard source
         run: cp -r $GITHUB_WORKSPACE/MX2040 vial-qmk/keyboards/
 
-      - name: Setup QMK 环境
+      - name: 安装编译依赖
         run: |
-          cd vial-qmk
-          make git-submodule
-          python3 -m pip install qmk
+          sudo apt update
+          sudo apt install -y build-essential git python3-pip \
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi \
+            dfu-util libusb-1.0-0-dev
 
-      - name: Compile firmware
+      - name: 初始化 QMK 子模块
         run: |
           cd vial-qmk
-          qmk compile -kb MX2040 -km default
+          git submodule update --init --recursive
+
+      - name: 编译固件
+        run: |
+          cd vial-qmk
+          make MX2040:default
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
