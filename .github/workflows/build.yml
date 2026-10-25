@@ -50,6 +50,9 @@ jobs:
       - name: 验证固件文件
         run: |
           cd vial-qmk
+          echo "=== 固件段大小统计 ==="
+          arm-none-eabi-size .build/mx2040_default.elf
+          echo -e "\n=== UF2 文件大小 ==="
           ls -lh .build/mx2040_default.uf2
           test -s .build/mx2040_default.uf2
 
