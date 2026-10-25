@@ -1,8 +1,8 @@
 #pragma once
 
 /* 矩阵行列数量 */
-#define MATRIX_ROWS 4
-#define MATRIX_COLS 5
+#define MATRIX_ROWS 8
+#define MATRIX_COLS 18
 
 /* 按键去抖时间（单位：毫秒） */
 #define DEBOUNCE 5
