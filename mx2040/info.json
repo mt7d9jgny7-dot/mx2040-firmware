@@ -6,7 +6,7 @@
     "usb": {
         "vid": "0x5418",
         "pid": "0x9418",
-        "device_version": "0.0.1"
+        "device_version": "0x0001"
     },
     "processor": "RP2040",
     "bootloader": "rp2040",
