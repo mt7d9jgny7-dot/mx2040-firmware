@@ -12,3 +12,6 @@
 
 /* 按键长按触发阈值 */
 #define TAPPING_TERM 200
+
+/* USB设备版本号，与info.json保持一致 */
+#define DEVICE_VER 0x0001
