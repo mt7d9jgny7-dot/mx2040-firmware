@@ -8,13 +8,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: 排查仓库目录结构
-        run: |
-          echo "=== 仓库根目录文件列表 ==="
-          ls -la $GITHUB_WORKSPACE
-          echo "=== 三级目录内所有文件 ==="
-          find $GITHUB_WORKSPACE -maxdepth 3 -type f | head -60
-
       - name: Checkout vial-qmk
         uses: actions/checkout@v5
         with:
@@ -22,3 +15,22 @@ jobs:
           ref: vial
           path: vial-qmk
           submodules: recursive
+
+      - name: Copy keyboard source
+        run: cp -r $GITHUB_WORKSPACE/MX2040 vial-qmk/keyboards/
+
+      - name: Setup QMK 环境
+        run: |
+          cd vial-qmk
+          make git-submodule
+          python3 -m pip install qmk
+
+      - name: Compile firmware
+        run: |
+          cd vial-qmk
+          qmk compile -kb MX2040 -km default
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: vial-qmk/.build/MX2040_default.uf2
