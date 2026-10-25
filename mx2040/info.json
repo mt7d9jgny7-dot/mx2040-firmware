@@ -26,7 +26,7 @@
     "vial": {
         "enabled": true,
         "uid": ["0x7A3F9D2C", "0x5B8E1F4A"],
-        "unlock_combo": [0, 1, 2, 3]
+        "unlock_combo": [109, 2]
     },
     "layouts": {
         "LAYOUT": {
