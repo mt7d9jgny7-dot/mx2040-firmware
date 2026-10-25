@@ -4,9 +4,9 @@
     "url": "",
     "maintainer": "your-github-username",
     "usb": {
-        "vid": "0xFEED",
-        "pid": "0x0001",
-        "device_ver": "0.0.1"
+        "vid": "0x5418",
+        "pid": "0x9418",
+        "device_ver": "0x0001"
     },
     "processor": "RP2040",
     "bootloader": "rp2040",
@@ -25,7 +25,7 @@
     },
     "vial": {
         "enabled": true,
-        "uid": ["0x12345678", "0x9ABCDEF0"],
+        "uid": ["0x7A3F9D2C", "0x5B8E1F4A"],
         "unlock_combo": [0, 1, 2, 3]
     },
     "layouts": {
