@@ -1,0 +1,27 @@
+name: Build MX2040 Vial Firmware
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout vial‑qmk
+        uses: actions/checkout@v4
+        repository: vial‑kb/vial‑qmk
+        ref: vial
+        path: vial‑qmk
+      - name: Copy keyboard source
+        run: cp -r $GITHUB_WORKSPACE/mx2040 vial‑qmk/keyboards/
+      - name: Setup QMK
+        run: |
+          cd vial‑qmk
+          make git-submodule
+      - name: Compile firmware
+        run: |
+          cd vial‑qmk
+          qmk compile -kb mx2040 -km default
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: vial‑qmk/.build/mx2040_default.uf2
