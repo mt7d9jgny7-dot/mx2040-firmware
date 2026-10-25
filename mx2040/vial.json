@@ -1,7 +1,7 @@
 {
     "name": "MX2040",
-    "vendor_id": "0x91A8",
-    "product_id": "0x52A8",
+    "vendor_id": "0x5418",
+    "product_id": "0x9418",
     "manufacturer": "Custom-Film",
     "lighting": "none",
     "matrix": {
