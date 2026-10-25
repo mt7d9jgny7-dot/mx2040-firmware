@@ -18,17 +18,26 @@ jobs:
       - name: Copy keyboard source
         run: cp -r $GITHUB_WORKSPACE/MX2040 vial-qmk/keyboards/
 
-      - name: 安装编译依赖
+      - name: 安装系统编译依赖
         run: |
           sudo apt update
-          sudo apt install -y build-essential git python3-pip \
+          sudo apt install -y build-essential git python3-pip python3-venv \
             gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi \
             dfu-util libusb-1.0-0-dev
 
-      - name: 初始化 QMK 子模块
+      - name: 安装 QMK Python 依赖与 CLI
         run: |
           cd vial-qmk
-          git submodule update --init --recursive
+          # 使用仓库自带依赖文件安装，版本完全匹配，避免兼容性问题
+          python3 -m pip install -r requirements.txt
+          # 将 pip 可执行路径加入 PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: 初始化 QMK 环境
+        run: |
+          cd vial-qmk
+          # 自动确认、指定当前目录为 QMK 根目录，不拉取新仓库
+          qmk setup -y -H $(pwd)
 
       - name: 编译固件
         run: |
