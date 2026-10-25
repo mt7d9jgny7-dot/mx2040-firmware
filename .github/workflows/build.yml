@@ -21,23 +21,24 @@ jobs:
       - name: 安装系统编译依赖
         run: |
           sudo apt update
-          sudo apt install -y build-essential git python3-pip python3-venv \
+          sudo apt install -y build-essential git python3-pip \
             gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi \
             dfu-util libusb-1.0-0-dev
 
-      - name: 安装 QMK Python 依赖与 CLI
+      - name: 安装 QMK 依赖并配置全局命令
         run: |
           cd vial-qmk
-          # 使用仓库自带依赖文件安装，版本完全匹配，避免兼容性问题
-          python3 -m pip install -r requirements.txt
-          # 将 pip 可执行路径加入 PATH
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          # --user 适配 Ubuntu 24.04 系统Python保护规则，安装与仓库匹配的依赖
+          python3 -m pip install --user -r requirements.txt
+          # 将 qmk 软链接到系统全局路径，Makefile 和命令行都能直接调用
+          sudo ln -sf ~/.local/bin/qmk /usr/local/bin/qmk
+          # 验证命令可用性，提前发现问题
+          qmk --version
 
-      - name: 初始化 QMK 环境
+      - name: 初始化 QMK 子模块
         run: |
           cd vial-qmk
-          # 自动确认、指定当前目录为 QMK 根目录，不拉取新仓库
-          qmk setup -y -H $(pwd)
+          git submodule update --init --recursive
 
       - name: 编译固件
         run: |
