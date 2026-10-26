@@ -14,3 +14,9 @@
 #define DEBOUNCE 5
 // 按键敲击检测时长
 #define TAPPING_TERM 200
+
+// 动态键映射支持层数，与你的 keymap 匹配并预留扩展空间
+#define DYNAMIC_KEYMAP_LAYER_COUNT 4
+
+// RP2040 Flash 磨损均衡适配 Vial 存储
+#define VIAL_EEPROM_SIZE 1024
