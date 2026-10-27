@@ -1,5 +1,6 @@
 #pragma once
 
+
 // ==================== Vial 强制必填配置 ====================
 // 键盘唯一UID，与 keyboard.json / vial.json 中数值保持一致
 #define VIAL_KEYBOARD_UID {0x7A, 0x3F, 0x9D, 0x2C, 0x5B, 0x8E, 0x1F, 0x4A}
