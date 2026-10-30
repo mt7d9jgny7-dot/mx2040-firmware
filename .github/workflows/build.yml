@@ -7,57 +7,56 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # ========== 1. APT系统包缓存，缓存gcc‑arm‑none‑eabi等deb包 ==========
+      # 1. APT系统包缓存
       - name: Cache APT packages
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev
           version: 1.0
 
-      # ========== 2. 缓存vial‑qmk仓库 + 子模块 ==========
-      - name: Cache vial‑qmk source & submodules
+      # 2. 缓存vial-qmk仓库 + 子模块
+      - name: Cache vial-qmk source & submodules
         uses: actions/cache@v4
         id: cache_vialqmk
         with:
           path: vial-qmk
-          # key绑定vial分支，vial‑qmk上游更新自动失效缓存
-          key: ${{ runner.os }}‑vialqmk‑vial‑${{ hashFiles('.github/workflows/build.yml') }}
+          key: ${{ runner.os }}-vialqmk-vial-${{ hashFiles('.github/workflows/build.yml') }}
           restore-keys: |
-            ${{ runner.os }}‑vialqmk‑vial‑
+            ${{ runner.os }}-vialqmk-vial-
 
-      - name: Checkout vial‑qmk
-        if: steps.cache_vialqmk.outputs.cache‑hit != 'true'
+      - name: Checkout vial-qmk
+        if: steps.cache_vialqmk.outputs.cache-hit != 'true'
         uses: actions/checkout@v5
         with:
-          repository: vial‑kb/vial‑qmk
+          repository: vial-kb/vial-qmk
           ref: vial
-          path: vial‑qmk
+          path: vial-qmk
 
-      - name: Update vial‑qmk & submodules（缓存命中时只做增量pull）
+      - name: Update vial-qmk & submodules（缓存命中时只做增量pull）
         run: |
-          cd vial‑qmk
+          cd vial-qmk
           git config --global --add safe.directory '*'
           git checkout vial
           git pull origin vial
           git submodule update --init --recursive
 
       - name: Copy keyboard source
-        run: cp -r $GITHUB_WORKSPACE/mx2040 vial‑qmk/keyboards/
+        run: cp -r $GITHUB_WORKSPACE/mx2040 vial-qmk/keyboards/
 
-      # ========== 3. ccache编译缓存：C编译中间文件，make速度提升最大 ==========
+      # 3. ccache编译缓存
       - name: Setup ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}‑qmk‑ccache‑${{ github.sha }}
-          restore‑keys: |
-            ${{ runner.os }}‑qmk‑ccache‑
+          key: ${{ runner.os }}-qmk-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-qmk-ccache-
 
       - name: 配置ccache环境
         run: |
           echo "CCACHE_DIR=~/.ccache" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=200M" >> $GITHUB_ENV
-          ccache --zero‑stats || true
+          ccache --zero-stats || true
 
       # 安装QMK CLI
       - name: 安装 QMK CLI
@@ -68,34 +67,34 @@ jobs:
 
       - name: 初始化 QMK 环境
         run: |
-          cd vial‑qmk
+          cd vial-qmk
           qmk setup -y -H $(pwd)
 
       - name: 验证键盘配置
         run: |
-          cd vial‑qmk
+          cd vial-qmk
           qmk info -kb mx2040
 
-      # 编译，make传入ccache前缀
+      # 编译固件，启用ccache
       - name: 编译固件
         run: |
-          cd vial‑qmk
+          cd vial-qmk
           make mx2040:default CC="ccache gcc" CXX="ccache g++"
 
       - name: ccache统计，看缓存命中率
-        run: ccache --show‑stats
+        run: ccache --show-stats
 
       - name: 验证固件文件
         run: |
-          cd vial‑qmk
+          cd vial-qmk
           echo "=== 固件段大小统计 ==="
-          arm‑none‑eabi‑size .build/mx2040_default.elf
+          arm-none-eabi-size .build/mx2040_default.elf
           echo -e "\n=== UF2 文件大小 ==="
           ls -lh .build/mx2040_default.uf2
           test -s .build/mx2040_default.uf2
 
       - name: Upload artifact
-        uses: actions/upload‑artifact@v4
+        uses: actions/upload-artifact@v4
         with:
-          name: MX2040‑Vial‑Firmware
-          path: vial‑qmk/.build/mx2040_default.uf2
+          name: MX2040-Vial-Firmware
+          path: vial-qmk/.build/mx2040_default.uf2
