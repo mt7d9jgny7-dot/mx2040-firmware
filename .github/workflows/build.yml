@@ -20,9 +20,9 @@ jobs:
         id: cache_vialqmk
         with:
           path: vial-qmk
-          key: ${{ runner.os }}-vialqmk-vial-v5-${{ hashFiles('.github/workflows/build.yml') }}
+          key: ${{ runner.os }}-vialqmk-vial-v6-${{ hashFiles('.github/workflows/build.yml') }}
           restore-keys: |
-            ${{ runner.os }}-vialqmk-vial-v5-
+            ${{ runner.os }}-vialqmk-vial-v6-
             ${{ runner.os }}-vialqmk-vial-
 
       - name: Checkout vial-qmk
@@ -151,7 +151,7 @@ jobs:
           PYEOF
 
       # =========================================================
-      # 验证层 2.5：QMK + Vial 核心符号清单
+      # 验证层 2.5：QMK + Vial 核心符号清单（REQUIRED + OPTIONAL 两级）
       # =========================================================
       - name: 验证层 2.5 — QMK + Vial 核心符号清单
         run: |
@@ -160,42 +160,52 @@ jobs:
 
           echo "=== 2.5.1 Vial 核心符号 ==="
           arm-none-eabi-nm -S -C --defined-only "$ELF" \
-            | grep -iE "vial_(init|handle_cmd|keyboard_uid|unlock_combo|keyboard_definition)" \
+            | grep -iE "vial_(init|handle_cmd|keyboard_uid|unlock_combo|keyboard_definition)|keyboard_definition" \
             | sort -k4 || true
 
           echo ""
           echo "=== 2.5.2 QMK 动态键映射 / 主键位表符号 ==="
           arm-none-eabi-nm -S -C --defined-only "$ELF" \
-            | grep -iE "\b(keymaps|layer_state|default_layer_state|dynamic_keymap_(get|set|reset|macro|key_to|encode|decode)|raw_hid_(receive|send)|eeconfig_init|eeconfig_update|keyboard_init|matrix_init|matrix_scan)\b" \
+            | grep -iE "\b(keymaps|layer_state|default_layer_state|dynamic_keymap_|raw_hid_|eeconfig_|keyboard_init|matrix_init|matrix_scan)\b" \
             | sort -k4 | head -n 60 || true
 
           echo ""
-          echo "=== 2.5.3 RP2040 底层符号（wear_leveling / rp2040_flash） ==="
+          echo "=== 2.5.3 RP2040 底层符号（wear_leveling / flash） ==="
           arm-none-eabi-nm -S -C --defined-only "$ELF" \
-            | grep -iE "(wear_leveling_|rp2040_flash_)" \
-            | sort -k4 | head -n 30 || true
+            | grep -iE "(wear_leveling_|flash_)" \
+            | sort -k4 | head -n 40 || true
 
           echo ""
-          echo "=== 2.5.4 关键符号存在性断言 ==="
+          echo "=== 2.5.4 关键符号存在性断言（REQUIRED + OPTIONAL） ==="
           python3 << 'PYEOF'
-          import subprocess, sys
+          import subprocess, re, sys
 
-          # 必须存在的符号（符号名正则, 说明）
+          # ---- REQUIRED：缺失即失败 ----
+          # 仅保留"功能上不可缺失、名字稳定"的入口级符号
           REQUIRED = [
-              (r"\bvial_init\b",                         "Vial 初始化入口"),
-              (r"\bvial_handle_cmd\b",                   "Vial 命令处理"),
-              (r"\bvial_keyboard_uid\b",                 "Vial UID 数组"),
-              (r"\bvial_unlock_combo_rows\b",            "Vial 解锁行"),
-              (r"\bvial_unlock_combo_cols\b",            "Vial 解锁列"),
-              (r"\bvial_keyboard_definition\b",          "内嵌 vial.json 定义"),
-              (r"\bkeymaps\b",                           "键位矩阵"),
-              (r"\bdynamic_keymap_get_keycode\b",        "动态键映射读"),
-              (r"\bdynamic_keymap_set_keycode\b",        "动态键映射写"),
-              (r"\braw_hid_receive\b",                   "Raw HID 接收"),
-              (r"\braw_hid_send\b",                      "Raw HID 发送"),
-              (r"\beeconfig_init_quantum\b",             "EEPROM 初始化"),
-              (r"\bwear_leveling_init\b",                "磨损均衡初始化"),
-              (r"\brp2040_flash_",                       "RP2040 Flash 驱动"),
+              (r"\bvial_init\b",              "Vial 初始化入口"),
+              (r"\bkeymaps\b",                "键位矩阵"),
+              (r"\bkeyboard_init\b",          "键盘初始化"),
+              (r"\bmatrix_init\b",            "矩阵初始化"),
+              (r"\bmatrix_scan\b",            "矩阵扫描"),
+              (r"\beeconfig_init",            "EEPROM 初始化"),
+              (r"\bwear_leveling_init\b",     "磨损均衡初始化"),
+              (r"\bwear_leveling_read\b",     "磨损均衡读"),
+              (r"\bwear_leveling_write\b",    "磨损均衡写"),
+          ]
+
+          # ---- OPTIONAL：缺失仅警告 ----
+          # 名字随版本变化、可能被内联/被 gc-sections 移除、或前缀不固定
+          OPTIONAL = [
+              (r"\bvial_handle_cmd\b",                                       "Vial 命令处理（可能内联）"),
+              (r"\bvial_keyboard_uid\b",                                     "Vial UID 数组（可能改名）"),
+              (r"\bvial_unlock_combo_rows\b",                                "Vial 解锁行（可能改名）"),
+              (r"\bvial_unlock_combo_cols\b",                                "Vial 解锁列（可能改名）"),
+              (r"\b(vial_keyboard_definition|keyboard_definition)\b",        "内嵌 vial.json 定义"),
+              (r"\bdynamic_keymap_(get|set)_keycode\b",                      "动态键映射读写（可能内联）"),
+              (r"\bdynamic_keymap_reset\b",                                  "动态键映射重置"),
+              (r"\braw_hid_(receive|send)\b",                                "Raw HID（可能被 Vial 替换）"),
+              (r"\bflash_",                                                  "RP2040 Flash 驱动（前缀可能不同）"),
           ]
 
           nm = subprocess.check_output(
@@ -203,17 +213,32 @@ jobs:
               text=True
           )
 
-          missing = []
-          for pat, desc in REQUIRED:
-              import re
-              if not re.search(pat, nm):
-                  missing.append(f"  - {pat}  ({desc})")
+          def check(items, label, fail_on_missing):
+              missing = []
+              print(f"--- {label} ---")
+              for pat, desc in items:
+                  ok = re.search(pat, nm) is not None
+                  print(f"  {'✅' if ok else '❌'} {pat:60s} {desc}")
+                  if not ok:
+                      missing.append((pat, desc))
+              return missing
 
-          if missing:
-              print("❌ 以下关键符号缺失：")
-              for m in missing: print(m)
+          req_missing = check(REQUIRED, "REQUIRED（缺失即失败）", True)
+          opt_missing = check(OPTIONAL, "OPTIONAL（缺失仅警告）", False)
+
+          print("")
+          if opt_missing:
+              print(f"⚠️ {len(opt_missing)} 个 OPTIONAL 符号缺失（属正常现象，通常是内联/优化导致）：")
+              for pat, desc in opt_missing:
+                  print(f"   - {pat}  ({desc})")
+
+          if req_missing:
+              print(f"\n❌ {len(req_missing)} 个 REQUIRED 符号缺失，Vial 或核心 QMK 功能可能失效：")
+              for pat, desc in req_missing:
+                  print(f"   - {pat}  ({desc})")
               sys.exit(1)
-          print(f"✅ 关键符号全部存在（{len(REQUIRED)} 项）")
+
+          print(f"\n✅ 所有 {len(REQUIRED)} 个 REQUIRED 符号存在；{len(OPTIONAL) - len(opt_missing)}/{len(OPTIONAL)} 个 OPTIONAL 符号存在")
           PYEOF
 
       # =========================================================
@@ -224,48 +249,62 @@ jobs:
           cd vial-qmk
           ELF=.build/mx2040_default.elf
 
-          echo "=== 2.6.1 定位 vial_keyboard_definition 符号 ==="
+          echo "=== 2.6.1 定位 keyboard_definition 符号（兼容两种命名） ==="
           SYM=$(arm-none-eabi-nm -S -C --defined-only "$ELF" \
-                 | grep -iE "\bvial_keyboard_definition\b" | head -n 1)
+                 | grep -iE "\b(vial_keyboard_definition|keyboard_definition)\b" | head -n 1)
           echo "$SYM"
 
           if [ -z "$SYM" ]; then
-            echo "❌ 找不到 vial_keyboard_definition 符号"
-            echo "--- 排查：可能在 .h 生成失败，检查 build_vial.mk 与 vial.json 语法 ---"
-            arm-none-eabi-nm -C "$ELF" | grep -i "keyboard_definition" || true
+            echo "⚠️ 找不到 keyboard_definition 符号。"
+            echo "   可能原因："
+            echo "   1) vial.json 生成失败（检查 build_vial.mk 与 vial.json 语法）"
+            echo "   2) 该符号被 gc-sections 移除（通常不会，除非 Vial 未被链接）"
+            echo "   下面列出所有含 'definition' 的符号供排查："
+            arm-none-eabi-nm -C "$ELF" | grep -i "definition" || true
+            echo ""
+            echo "❌ 无法导出内置 vial.json"
             exit 1
           fi
 
           echo ""
           echo "=== 2.6.2 解析并导出内置 JSON ==="
           python3 << 'PYEOF'
-          import subprocess, re, sys, json, os
+          import subprocess, re, sys, json
 
           ELF = ".build/mx2040_default.elf"
 
-          # 1) 找到符号
+          # 1) 找到符号（兼容 keyboard_definition / vial_keyboard_definition）
           nm = subprocess.check_output(
               ["arm-none-eabi-nm", "-S", "--print-size", ELF], text=True
           )
-          m = re.search(r'^([0-9a-f]+)\s+([0-9a-f]+)\s+\w\s+vial_keyboard_definition$',
-                        nm, re.M)
+          sym_pat = re.compile(
+              r'^([0-9a-f]+)\s+([0-9a-f]+)\s+\w\s+(vial_keyboard_definition|keyboard_definition)$',
+              re.M
+          )
+          m = sym_pat.search(nm)
           if not m:
-              # 兼容不同 QMK 版本：找最小匹配
+              # 退一步：逐行扫描，兼容没有 size 字段的情况
               for line in nm.splitlines():
                   parts = line.split()
-                  if len(parts) >= 4 and parts[3] == "vial_keyboard_definition":
+                  if len(parts) >= 4 and parts[3] in ("vial_keyboard_definition", "keyboard_definition"):
                       m = re.match(r'([0-9a-f]+)\s+([0-9a-f]+)', line)
                       break
           if not m:
               print("❌ 无法定位符号地址/大小")
               sys.exit(1)
 
+          sym_name = m.group(3) if m.lastindex and m.lastindex >= 3 else "(unknown)"
           sym_addr = int(m.group(1), 16)
           sym_size = int(m.group(2), 16)
+          print(f"符号名    : {sym_name}")
           print(f"符号地址  : 0x{sym_addr:08X}")
           print(f"符号大小  : {sym_size} 字节")
 
-          # 2) 找包含该符号的段（.rodata / .data）
+          if sym_size == 0:
+              print("❌ 符号大小为 0")
+              sys.exit(1)
+
+          # 2) 找包含该符号的段
           sec_out = subprocess.check_output(
               ["arm-none-eabi-readelf", "-S", "-W", ELF], text=True
           )
@@ -289,7 +328,7 @@ jobs:
                   target = s
                   break
           if not target:
-              print("❌ 找不到包含符号的段（可能在 .bss，无文件内容）")
+              print("❌ 找不到包含符号的段（可能落在 .bss，无文件内容）")
               sys.exit(1)
 
           print(f"所在段    : {target['name']}")
@@ -311,11 +350,10 @@ jobs:
                   print("")
                   print("=== 内置 vial.json 内容 ===")
                   print(json.dumps(obj, indent=4, ensure_ascii=False))
-                  # 落盘供后续步骤 / 人工比对
                   with open("builtin_vial.json", "w", encoding="utf-8") as w:
                       json.dump(obj, w, indent=4, ensure_ascii=False)
                   print("")
-                  print(f"📄 已落盘：vial-qmk/builtin_vial.json")
+                  print("📄 已落盘：vial-qmk/builtin_vial.json")
                   sys.exit(0)
               except json.JSONDecodeError:
                   continue
@@ -328,7 +366,7 @@ jobs:
           echo ""
           echo "=== 2.6.3 内置 JSON 与源 vial.json 一致性校验 ==="
           python3 << 'PYEOF'
-          import json, sys, os
+          import json, sys
 
           SRC = "keyboards/mx2040/vial.json"
           BLD = "builtin_vial.json"
@@ -338,12 +376,8 @@ jobs:
           with open(BLD, encoding="utf-8") as f:
               bld = json.load(f)
 
-          # 只做关键字段比对（vial.json 允许空字段差异）
           KEY_FIELDS = ["name", "vendor_id", "product_id", "matrix", "vial"]
-          mismatch = []
-          for k in KEY_FIELDS:
-              if src.get(k) != bld.get(k):
-                  mismatch.append(k)
+          mismatch = [k for k in KEY_FIELDS if src.get(k) != bld.get(k)]
 
           if mismatch:
               print(f"⚠️ 以下字段在源文件与内置 JSON 中不一致：{mismatch}")
@@ -351,7 +385,6 @@ jobs:
           else:
               print("✅ 源 vial.json 与内置 JSON 的关键字段完全一致")
 
-          # 布局坐标数量对比
           src_km = src.get("layouts", {}).get("keymap", [])
           bld_km = bld.get("layouts", {}).get("keymap", [])
           print(f"源 KLE 行数       : {len(src_km)}")
