@@ -7,21 +7,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # 1. APT系统包缓存（已加入 ccache）
+      # 1. APT系统包缓存 (确保 ccache 和 ARM 工具链已安装)
       - name: Cache APT packages
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev ccache
           version: 1.0
 
-      # 2. 缓存vial-qmk仓库 + 子模块
+      # 2. 缓存vial-qmk仓库 + 子模块 (注意这里的 key 加了 v2 版本号)
       - name: Cache vial-qmk source & submodules
         uses: actions/cache@v4
         id: cache_vialqmk
         with:
           path: vial-qmk
-          key: ${{ runner.os }}-vialqmk-vial-${{ hashFiles('.github/workflows/build.yml') }}
+          key: ${{ runner.os }}-vialqmk-vial-v2-${{ hashFiles('.github/workflows/build.yml') }}
           restore-keys: |
+            ${{ runner.os }}-vialqmk-vial-v2-
             ${{ runner.os }}-vialqmk-vial-
 
       - name: Checkout vial-qmk
@@ -32,7 +33,7 @@ jobs:
           ref: vial
           path: vial-qmk
 
-      - name: Update vial-qmk & submodules（缓存命中时只做增量pull）
+      - name: Update vial-qmk & submodules
         run: |
           cd vial-qmk
           git config --global --add safe.directory '*'
@@ -75,11 +76,11 @@ jobs:
           cd vial-qmk
           qmk info -kb mx2040
 
-      # 编译固件，启用ccache
+      # 编译固件，关键修复：指定正确的 ARM 交叉编译器
       - name: 编译固件
         run: |
           cd vial-qmk
-          make mx2040:default CC="ccache gcc" CXX="ccache g++"
+          make mx2040:default CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
 
       - name: ccache统计，看缓存命中率
         run: ccache --show-stats
