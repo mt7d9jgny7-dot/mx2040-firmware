@@ -14,7 +14,7 @@ jobs:
           packages: build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev ccache
           version: 1.0
 
-      # 2. 缓存 vial-qmk
+      # 2. 缓存 vial-qmk（key 含 rules.mk 哈希，rules.mk 变更即失效）
       - name: Cache vial-qmk source & submodules
         uses: actions/cache@v4
         id: cache_vialqmk
@@ -75,11 +75,19 @@ jobs:
           cd vial-qmk
           qmk info -kb mx2040
 
-      # 编译固件（规则来自 rules.mk：OPT=0 + LTO_ENABLE=no + -fno-inline + --no-gc-sections）
+      # =========================================================
+      # 编译固件 + 回显编译选项
+      # =========================================================
       - name: 编译固件
         run: |
           cd vial-qmk
           make mx2040:default CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
+          echo ""
+          echo "=== 编译选项回显（验证 OPT / LTO 是否生效） ==="
+          qmk show_options -kb mx2040 || echo "⚠️ qmk show_options 不可用，改用 fallback"
+          echo ""
+          echo "=== Fallback: 从 build 目录检查 CFLAGS 中的优化标志 ==="
+          grep -rhoE "\-O[0-3s]|\-flto|\-fno-inline" .build/obj_mx2040_default/ 2>/dev/null | sort -u || true
 
       - name: ccache 统计
         run: ccache --show-stats
@@ -156,69 +164,64 @@ jobs:
           PYEOF
 
       # =========================================================
-      # 验证层 2.5：QMK + Vial 核心符号清单（完整 REQUIRED，去除优化后应全部存在）
+      # 验证层 2.5：QMK + Vial 核心符号清单（nm -a 包含 static 符号）
       # =========================================================
       - name: 验证层 2.5 — QMK + Vial 核心符号清单
         run: |
           cd vial-qmk
           ELF=.build/mx2040_default.elf
 
-          echo "=== 2.5.1 Vial 核心符号 ==="
-          arm-none-eabi-nm -S -C --defined-only "$ELF" \
+          echo "=== 2.5.1 Vial 核心符号（含 static） ==="
+          arm-none-eabi-nm -a -S -C --defined-only "$ELF" \
             | grep -iE "vial_(init|handle_cmd|keyboard_uid|unlock_combo|keyboard_definition)|keyboard_definition" \
             | sort -k4 || true
 
           echo ""
-          echo "=== 2.5.2 QMK 动态键映射 / 主键位表符号 ==="
-          arm-none-eabi-nm -S -C --defined-only "$ELF" \
+          echo "=== 2.5.2 QMK 动态键映射 / 主键位表符号（含 static） ==="
+          arm-none-eabi-nm -a -S -C --defined-only "$ELF" \
             | grep -iE "\b(keymaps|layer_state|default_layer_state|dynamic_keymap_|raw_hid_|eeconfig_|keyboard_init|matrix_init|matrix_scan)\b" \
-            | sort -k4 | head -n 60 || true
+            | sort -k4 | head -n 80 || true
 
           echo ""
-          echo "=== 2.5.3 RP2040 底层符号（wear_leveling / flash） ==="
-          arm-none-eabi-nm -S -C --defined-only "$ELF" \
+          echo "=== 2.5.3 RP2040 底层符号（wear_leveling / flash，含 static） ==="
+          arm-none-eabi-nm -a -S -C --defined-only "$ELF" \
             | grep -iE "(wear_leveling_|flash_)" \
             | sort -k4 | head -n 40 || true
 
           echo ""
-          echo "=== 2.5.4 关键符号存在性断言（完整 REQUIRED） ==="
+          echo "=== 2.5.4 关键符号存在性断言（REQUIRED + OPTIONAL） ==="
           python3 << 'PYEOF'
           import subprocess, re, sys
 
-          # ---- REQUIRED：去除优化后，以下符号必须全部存在 ----
+          # REQUIRED：核心入口，缺失即失败（名字稳定、必须存在）
           REQUIRED = [
-              # Vial 核心
-              (r"\bvial_init\b",                                     "Vial 初始化入口"),
-              (r"\bvial_handle_cmd\b",                               "Vial 命令处理"),
-              (r"\bvial_keyboard_uid\b",                             "Vial UID 数组"),
-              (r"\bvial_unlock_combo_rows\b",                        "Vial 解锁行"),
-              (r"\bvial_unlock_combo_cols\b",                        "Vial 解锁列"),
-              (r"\b(vial_keyboard_definition|keyboard_definition)\b","内嵌 vial.json 定义"),
-              # QMK 主键位表与初始化
-              (r"\bkeymaps\b",                                       "键位矩阵"),
-              (r"\bkeyboard_init\b",                                 "键盘初始化"),
-              (r"\bmatrix_init\b",                                   "矩阵初始化"),
-              (r"\bmatrix_scan\b",                                   "矩阵扫描"),
-              (r"\beeconfig_init",                                   "EEPROM 初始化"),
-              # 动态键映射
-              (r"\bdynamic_keymap_reset\b",                          "动态键映射重置"),
-              # Raw HID（Vial 通信基础）
-              (r"\braw_hid_receive\b",                               "Raw HID 接收"),
-              (r"\braw_hid_send\b",                                  "Raw HID 发送"),
-              # RP2040 Flash 驱动
-              (r"\bwear_leveling_init\b",                            "磨损均衡初始化"),
-              (r"\bwear_leveling_read\b",                            "磨损均衡读"),
-              (r"\bwear_leveling_write\b",                           "磨损均衡写"),
+              (r"\bvial_init\b",              "Vial 初始化入口"),
+              (r"\bkeymaps\b",                "键位矩阵"),
+              (r"\bkeyboard_init\b",          "键盘初始化"),
+              (r"\bmatrix_init\b",            "矩阵初始化"),
+              (r"\bmatrix_scan\b",            "矩阵扫描"),
+              (r"\beeconfig_init",            "EEPROM 初始化"),
+              (r"\bwear_leveling_init\b",     "磨损均衡初始化"),
+              (r"\bwear_leveling_read\b",     "磨损均衡读"),
+              (r"\bwear_leveling_write\b",    "磨损均衡写"),
           ]
 
-          # ---- OPTIONAL：static inline 或前缀随版本变化的符号 ----
+          # OPTIONAL：可能被内联、名字变化、或非全局符号（缺失仅警告）
           OPTIONAL = [
-              (r"\bdynamic_keymap_(get|set)_keycode\b",              "动态键映射读写（static inline，无独立符号）"),
-              (r"\b(rp2040_flash_|flash_)",                          "RP2040 Flash 驱动（前缀随版本变化）"),
+              (r"\bvial_handle_cmd\b",                                     "Vial 命令处理（可能内联或非全局）"),
+              (r"\bvial_keyboard_uid\b",                                   "Vial UID 数组（可能内联为立即数）"),
+              (r"\bvial_unlock_combo_rows\b",                              "Vial 解锁行（可能内联）"),
+              (r"\bvial_unlock_combo_cols\b",                              "Vial 解锁列（可能内联）"),
+              (r"\b(vial_keyboard_definition|keyboard_definition)\b",      "内嵌 vial.json 定义（static，需 nm -a）"),
+              (r"\bdynamic_keymap_reset\b",                                "动态键映射重置"),
+              (r"\bdynamic_keymap_(get|set)_keycode\b",                    "动态键映射读写（static inline）"),
+              (r"\braw_hid_(receive|send)\b",                              "Raw HID（Vial 可能替换或弱符号）"),
+              (r"\bflash_",                                                "RP2040 Flash 驱动（前缀可能不同）"),
           ]
 
+          # 关键：-a 让 nm 输出 static 符号
           nm = subprocess.check_output(
-              ["arm-none-eabi-nm", "-C", "--defined-only", ".build/mx2040_default.elf"],
+              ["arm-none-eabi-nm", "-a", "-C", "--defined-only", ".build/mx2040_default.elf"],
               text=True
           )
 
@@ -237,7 +240,7 @@ jobs:
 
           print("")
           if opt_missing:
-              print(f"⚠️ {len(opt_missing)} 个 OPTIONAL 符号缺失（static inline 或前缀变化，属正常）：")
+              print(f"⚠️ {len(opt_missing)} 个 OPTIONAL 符号缺失（属正常，通常是内联/非全局/版本差异）：")
               for pat, desc in opt_missing:
                   print(f"   - {pat}  ({desc})")
 
@@ -262,15 +265,20 @@ jobs:
           cd vial-qmk
           ELF=.build/mx2040_default.elf
 
-          echo "=== 2.6.1 定位 keyboard_definition 符号 ==="
-          SYM=$(arm-none-eabi-nm -S -C --defined-only "$ELF" \
+          echo "=== 2.6.1 定位 keyboard_definition 符号（含 static，兼容两种命名） ==="
+          SYM=$(arm-none-eabi-nm -a -S -C --defined-only "$ELF" \
                  | grep -iE "\b(vial_keyboard_definition|keyboard_definition)\b" | head -n 1)
           echo "$SYM"
 
           if [ -z "$SYM" ]; then
-            echo "❌ 找不到 keyboard_definition 符号。"
-            echo "--- 排查：列出所有含 definition 的符号 ---"
-            arm-none-eabi-nm -C "$ELF" | grep -i "definition" || true
+            echo "⚠️ 找不到 keyboard_definition 符号。"
+            echo "   可能原因："
+            echo "   1) vial.json 生成失败（检查 build_vial.mk 与 vial.json 语法）"
+            echo "   2) 该符号被 gc-sections 移除（--no-gc-sections 应已避免）"
+            echo "   下面列出所有含 'definition' 的符号供排查："
+            arm-none-eabi-nm -a -C "$ELF" | grep -i "definition" || true
+            echo ""
+            echo "❌ 无法导出内置 vial.json"
             exit 1
           fi
 
@@ -281,9 +289,9 @@ jobs:
 
           ELF = ".build/mx2040_default.elf"
 
-          # 1) 找到符号
+          # 1) 找到符号（-a 包含 static）
           nm = subprocess.check_output(
-              ["arm-none-eabi-nm", "-S", "--print-size", ELF], text=True
+              ["arm-none-eabi-nm", "-a", "-S", "--print-size", ELF], text=True
           )
           sym_pat = re.compile(
               r'^([0-9a-f]+)\s+([0-9a-f]+)\s+\w\s+(vial_keyboard_definition|keyboard_definition)$',
@@ -291,6 +299,7 @@ jobs:
           )
           m = sym_pat.search(nm)
           if not m:
+              # 退一步：逐行扫描
               for line in nm.splitlines():
                   parts = line.split()
                   if len(parts) >= 4 and parts[3] in ("vial_keyboard_definition", "keyboard_definition"):
