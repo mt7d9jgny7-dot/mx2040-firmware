@@ -7,11 +7,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # 1. APT系统包缓存
+      # 1. APT系统包缓存（已加入 ccache）
       - name: Cache APT packages
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev
+          packages: build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev ccache
           version: 1.0
 
       # 2. 缓存vial-qmk仓库 + 子模块
@@ -54,7 +54,7 @@ jobs:
 
       - name: 配置ccache环境
         run: |
-          echo "CCACHE_DIR=~/.ccache" >> $GITHUB_ENV
+          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=200M" >> $GITHUB_ENV
           ccache --zero-stats || true
 
