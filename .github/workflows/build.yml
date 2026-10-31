@@ -7,22 +7,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # 1. APT系统包缓存 (确保 ccache 和 ARM 工具链已安装)
+      # 1. APT 系统包缓存
       - name: Cache APT packages
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev ccache
           version: 1.0
 
-      # 2. 缓存vial-qmk仓库 + 子模块 (注意这里的 key 加了 v2 版本号)
+      # 2. 缓存 vial-qmk
       - name: Cache vial-qmk source & submodules
         uses: actions/cache@v4
         id: cache_vialqmk
         with:
           path: vial-qmk
-          key: ${{ runner.os }}-vialqmk-vial-v2-${{ hashFiles('.github/workflows/build.yml') }}
+          key: ${{ runner.os }}-vialqmk-vial-v4-${{ hashFiles('.github/workflows/build.yml') }}
           restore-keys: |
-            ${{ runner.os }}-vialqmk-vial-v2-
+            ${{ runner.os }}-vialqmk-vial-v4-
             ${{ runner.os }}-vialqmk-vial-
 
       - name: Checkout vial-qmk
@@ -44,7 +44,7 @@ jobs:
       - name: Copy keyboard source
         run: cp -r $GITHUB_WORKSPACE/mx2040 vial-qmk/keyboards/
 
-      # 3. ccache编译缓存
+      # 3. ccache 编译缓存
       - name: Setup ccache
         uses: actions/cache@v4
         with:
@@ -53,13 +53,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-qmk-ccache-
 
-      - name: 配置ccache环境
+      - name: 配置 ccache 环境
         run: |
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=200M" >> $GITHUB_ENV
           ccache --zero-stats || true
 
-      # 安装QMK CLI
       - name: 安装 QMK CLI
         run: |
           python3 -m pip install --user qmk
@@ -76,26 +75,84 @@ jobs:
           cd vial-qmk
           qmk info -kb mx2040
 
-      # 编译固件，关键修复：指定正确的 ARM 交叉编译器
+      # 编译固件
       - name: 编译固件
         run: |
           cd vial-qmk
           make mx2040:default CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
 
-      - name: ccache统计，看缓存命中率
+      - name: ccache 统计
         run: ccache --show-stats
 
-      - name: 验证固件文件
+      # =========================================================
+      # 验证层 1：ELF 链接完整性
+      # =========================================================
+      - name: 验证 ELF 链接（未定义符号 / 入口点）
         run: |
           cd vial-qmk
-          echo "=== 固件段大小统计 ==="
-          arm-none-eabi-size .build/mx2040_default.elf
-          echo -e "\n=== UF2 文件大小 ==="
-          ls -lh .build/mx2040_default.uf2
-          test -s .build/mx2040_default.uf2
+          ELF=.build/mx2040_default.elf
+          test -s "$ELF" || { echo "❌ ELF 文件不存在或为空"; exit 1; }
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: MX2040-Vial-Firmware
-          path: vial-qmk/.build/mx2040_default.uf2
+          echo "=== 1.1 未定义符号检查 ==="
+          if arm-none-eabi-nm -u "$ELF" | grep -q .; then
+            echo "❌ 存在未定义符号："
+            arm-none-eabi-nm -u "$ELF"
+            exit 1
+          fi
+          echo "✅ 无未定义符号"
+
+          echo "=== 1.2 入口点检查 ==="
+          ENTRY=$(arm-none-eabi-readelf -h "$ELF" | awk '/Entry point/{print $4}')
+          echo "入口点: $ENTRY"
+          # RP2040 固件入口必须落在 0x10000000~0x10200000 (XIP flash)
+          python3 -c "
+          entry = int('${ENTRY}', 16)
+          assert 0x10000000 <= entry < 0x10200000, f'入口点 ${ENTRY} 不在 XIP flash 范围'
+          print('✅ 入口点在 XIP flash 范围内')
+          "
+
+          echo "=== 1.3 ELF 头部完整性 ==="
+          arm-none-eabi-readelf -h "$ELF" | grep -E "Type|Machine|Entry"
+          # 机器类型应为 ARM
+          arm-none-eabi-readelf -h "$ELF" | grep -q "ARM" || { echo "❌ 非 ARM 架构"; exit 1; }
+          echo "✅ ELF 头部完整"
+
+      # =========================================================
+      # 验证层 2：段大小与 RP2040 容量
+      # =========================================================
+      - name: 验证段大小（Flash / RAM）
+        run: |
+          cd vial-qmk
+          ELF=.build/mx2040_default.elf
+          echo "=== 2.1 各段大小 ==="
+          arm-none-eabi-size -A "$ELF"
+
+          echo "=== 2.2 段容量校验 ==="
+          python3 << 'PYEOF'
+          import subprocess, sys
+
+          out = subprocess.check_output(
+              ["arm-none-eabi-size", "-A", ".build/mx2040_default.elf"],
+              text=True
+          )
+          text = data = bss = 0
+          for line in out.splitlines():
+              parts = line.split()
+              if len(parts) >= 2:
+                  if parts[0] == ".text":
+                      text = int(parts[1])
+                  elif parts[0] == ".data":
+                      data = int(parts[1])
+                  elif parts[0] == ".bss":
+                      bss = int(parts[1])
+
+          FLASH_SIZE = 2 * 1024 * 1024      # RP2040 2MB
+          RAM_SIZE   = 264 * 1024           # RP2040 264KB SRAM
+
+          flash_used = text + data
+          ram_used   = data + bss
+
+          print(f"Flash 使用: {flash_used:,} / {FLASH_SIZE:,} 字节 ({flash_used*100//FLASH_SIZE}%)")
+          print(f"RAM   使用: {ram_used:,} / {RAM_SIZE:,} 字节 ({ram_used*100//RAM_SIZE}%)")
+
+   
