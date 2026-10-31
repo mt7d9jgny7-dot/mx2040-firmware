@@ -20,9 +20,9 @@ jobs:
         id: cache_vialqmk
         with:
           path: vial-qmk
-          key: ${{ runner.os }}-vialqmk-vial-v4-${{ hashFiles('.github/workflows/build.yml') }}
+          key: ${{ runner.os }}-vialqmk-vial-v5-${{ hashFiles('.github/workflows/build.yml') }}
           restore-keys: |
-            ${{ runner.os }}-vialqmk-vial-v4-
+            ${{ runner.os }}-vialqmk-vial-v5-
             ${{ runner.os }}-vialqmk-vial-
 
       - name: Checkout vial-qmk
@@ -104,7 +104,6 @@ jobs:
           echo "=== 1.2 入口点检查 ==="
           ENTRY=$(arm-none-eabi-readelf -h "$ELF" | awk '/Entry point/{print $4}')
           echo "入口点: $ENTRY"
-          # RP2040 固件入口必须落在 0x10000000~0x10200000 (XIP flash)
           python3 -c "
           entry = int('${ENTRY}', 16)
           assert 0x10000000 <= entry < 0x10200000, f'入口点 ${ENTRY} 不在 XIP flash 范围'
@@ -113,7 +112,6 @@ jobs:
 
           echo "=== 1.3 ELF 头部完整性 ==="
           arm-none-eabi-readelf -h "$ELF" | grep -E "Type|Machine|Entry"
-          # 机器类型应为 ARM
           arm-none-eabi-readelf -h "$ELF" | grep -q "ARM" || { echo "❌ 非 ARM 架构"; exit 1; }
           echo "✅ ELF 头部完整"
 
@@ -130,29 +128,23 @@ jobs:
           echo "=== 2.2 段容量校验 ==="
           python3 << 'PYEOF'
           import subprocess, sys
-
           out = subprocess.check_output(
-              ["arm-none-eabi-size", "-A", ".build/mx2040_default.elf"],
-              text=True
-          )
+              ["arm-none-eabi-size", "-A", ".build/mx2040_default.elf"], text=True)
           text = data = bss = 0
           for line in out.splitlines():
               parts = line.split()
               if len(parts) >= 2:
-                  if parts[0] == ".text":
-                      text = int(parts[1])
-                  elif parts[0] == ".data":
-                      data = int(parts[1])
-                  elif parts[0] == ".bss":
-                      bss = int(parts[1])
-
-          FLASH_SIZE = 2 * 1024 * 1024      # RP2040 2MB
-          RAM_SIZE   = 264 * 1024           # RP2040 264KB SRAM
-
+                  if parts[0] == ".text": text = int(parts[1])
+                  elif parts[0] == ".data": data = int(parts[1])
+                  elif parts[0] == ".bss":  bss  = int(parts[1])
+          FLASH_SIZE = 2 * 1024 * 1024
+          RAM_SIZE   = 264 * 1024
           flash_used = text + data
           ram_used   = data + bss
-
           print(f"Flash 使用: {flash_used:,} / {FLASH_SIZE:,} 字节 ({flash_used*100//FLASH_SIZE}%)")
           print(f"RAM   使用: {ram_used:,} / {RAM_SIZE:,} 字节 ({ram_used*100//RAM_SIZE}%)")
-
-   
+          if flash_used > FLASH_SIZE:
+              print(f"❌ Flash 溢出 {flash_used - FLASH_SIZE} 字节"); sys.exit(1)
+          if ram_used > RAM_SIZE:
+              print(f"❌ RAM 溢出 {ram_used - RAM_SIZE} 字节"); sys.exit(1)
+          
