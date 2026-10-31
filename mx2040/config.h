@@ -12,5 +12,5 @@
 // 按键敲击检测时长
 #define TAPPING_TERM 200
 
-// 动态键映射支持层数，与你的 keymap 匹配并预留扩展空间
+// 动态键映射支持层数
 #define DYNAMIC_KEYMAP_LAYER_COUNT 4
