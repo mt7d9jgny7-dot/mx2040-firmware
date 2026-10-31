@@ -20,9 +20,9 @@ jobs:
         id: cache_vialqmk
         with:
           path: vial-qmk
-          key: ${{ runner.os }}-vialqmk-vial-v6-${{ hashFiles('.github/workflows/build.yml') }}
+          key: ${{ runner.os }}-vialqmk-vial-v7-${{ hashFiles('.github/workflows/build.yml', 'mx2040/rules.mk') }}
           restore-keys: |
-            ${{ runner.os }}-vialqmk-vial-v6-
+            ${{ runner.os }}-vialqmk-vial-v7-
             ${{ runner.os }}-vialqmk-vial-
 
       - name: Checkout vial-qmk
@@ -75,7 +75,7 @@ jobs:
           cd vial-qmk
           qmk info -kb mx2040
 
-      # 编译固件
+      # 编译固件（规则来自 rules.mk：OPT=0 + LTO_ENABLE=no + -fno-inline + --no-gc-sections）
       - name: 编译固件
         run: |
           cd vial-qmk
@@ -116,7 +116,7 @@ jobs:
           echo "✅ ELF 头部完整"
 
       # =========================================================
-      # 验证层 2：段大小与 RP2040 容量
+      # 验证层 2：段大小与 RP2040 容量（含 50% 体积警告）
       # =========================================================
       - name: 验证段大小（Flash / RAM）
         run: |
@@ -141,17 +141,22 @@ jobs:
           RAM_SIZE   = 264 * 1024
           flash_used = text + data
           ram_used   = data + bss
-          print(f"Flash 使用: {flash_used:,} / {FLASH_SIZE:,} 字节 ({flash_used*100//FLASH_SIZE}%)")
-          print(f"RAM   使用: {ram_used:,} / {RAM_SIZE:,} 字节 ({ram_used*100//RAM_SIZE}%)")
+          flash_pct  = flash_used * 100 // FLASH_SIZE
+          ram_pct    = ram_used * 100 // RAM_SIZE
+          print(f"Flash 使用: {flash_used:,} / {FLASH_SIZE:,} 字节 ({flash_pct}%)")
+          print(f"RAM   使用: {ram_used:,} / {RAM_SIZE:,} 字节 ({ram_pct}%)")
           if flash_used > FLASH_SIZE:
               print(f"❌ Flash 溢出 {flash_used - FLASH_SIZE} 字节"); sys.exit(1)
           if ram_used > RAM_SIZE:
               print(f"❌ RAM 溢出 {ram_used - RAM_SIZE} 字节"); sys.exit(1)
+          if flash_pct >= 50:
+              print(f"⚠️ Flash 已用 {flash_pct}% —— 由于禁用了优化（OPT=0），体积显著增大。")
+              print("   发布固件前请注释 rules.mk 中的 OPT/LTO/CFLAGS/LDFLAGS 4 行后重新编译。")
           print("✅ Flash / RAM 容量均在 RP2040 规格内")
           PYEOF
 
       # =========================================================
-      # 验证层 2.5：QMK + Vial 核心符号清单（REQUIRED + OPTIONAL 两级）
+      # 验证层 2.5：QMK + Vial 核心符号清单（完整 REQUIRED，去除优化后应全部存在）
       # =========================================================
       - name: 验证层 2.5 — QMK + Vial 核心符号清单
         run: |
@@ -176,36 +181,40 @@ jobs:
             | sort -k4 | head -n 40 || true
 
           echo ""
-          echo "=== 2.5.4 关键符号存在性断言（REQUIRED + OPTIONAL） ==="
+          echo "=== 2.5.4 关键符号存在性断言（完整 REQUIRED） ==="
           python3 << 'PYEOF'
           import subprocess, re, sys
 
-          # ---- REQUIRED：缺失即失败 ----
-          # 仅保留"功能上不可缺失、名字稳定"的入口级符号
+          # ---- REQUIRED：去除优化后，以下符号必须全部存在 ----
           REQUIRED = [
-              (r"\bvial_init\b",              "Vial 初始化入口"),
-              (r"\bkeymaps\b",                "键位矩阵"),
-              (r"\bkeyboard_init\b",          "键盘初始化"),
-              (r"\bmatrix_init\b",            "矩阵初始化"),
-              (r"\bmatrix_scan\b",            "矩阵扫描"),
-              (r"\beeconfig_init",            "EEPROM 初始化"),
-              (r"\bwear_leveling_init\b",     "磨损均衡初始化"),
-              (r"\bwear_leveling_read\b",     "磨损均衡读"),
-              (r"\bwear_leveling_write\b",    "磨损均衡写"),
+              # Vial 核心
+              (r"\bvial_init\b",                                     "Vial 初始化入口"),
+              (r"\bvial_handle_cmd\b",                               "Vial 命令处理"),
+              (r"\bvial_keyboard_uid\b",                             "Vial UID 数组"),
+              (r"\bvial_unlock_combo_rows\b",                        "Vial 解锁行"),
+              (r"\bvial_unlock_combo_cols\b",                        "Vial 解锁列"),
+              (r"\b(vial_keyboard_definition|keyboard_definition)\b","内嵌 vial.json 定义"),
+              # QMK 主键位表与初始化
+              (r"\bkeymaps\b",                                       "键位矩阵"),
+              (r"\bkeyboard_init\b",                                 "键盘初始化"),
+              (r"\bmatrix_init\b",                                   "矩阵初始化"),
+              (r"\bmatrix_scan\b",                                   "矩阵扫描"),
+              (r"\beeconfig_init",                                   "EEPROM 初始化"),
+              # 动态键映射
+              (r"\bdynamic_keymap_reset\b",                          "动态键映射重置"),
+              # Raw HID（Vial 通信基础）
+              (r"\braw_hid_receive\b",                               "Raw HID 接收"),
+              (r"\braw_hid_send\b",                                  "Raw HID 发送"),
+              # RP2040 Flash 驱动
+              (r"\bwear_leveling_init\b",                            "磨损均衡初始化"),
+              (r"\bwear_leveling_read\b",                            "磨损均衡读"),
+              (r"\bwear_leveling_write\b",                           "磨损均衡写"),
           ]
 
-          # ---- OPTIONAL：缺失仅警告 ----
-          # 名字随版本变化、可能被内联/被 gc-sections 移除、或前缀不固定
+          # ---- OPTIONAL：static inline 或前缀随版本变化的符号 ----
           OPTIONAL = [
-              (r"\bvial_handle_cmd\b",                                       "Vial 命令处理（可能内联）"),
-              (r"\bvial_keyboard_uid\b",                                     "Vial UID 数组（可能改名）"),
-              (r"\bvial_unlock_combo_rows\b",                                "Vial 解锁行（可能改名）"),
-              (r"\bvial_unlock_combo_cols\b",                                "Vial 解锁列（可能改名）"),
-              (r"\b(vial_keyboard_definition|keyboard_definition)\b",        "内嵌 vial.json 定义"),
-              (r"\bdynamic_keymap_(get|set)_keycode\b",                      "动态键映射读写（可能内联）"),
-              (r"\bdynamic_keymap_reset\b",                                  "动态键映射重置"),
-              (r"\braw_hid_(receive|send)\b",                                "Raw HID（可能被 Vial 替换）"),
-              (r"\bflash_",                                                  "RP2040 Flash 驱动（前缀可能不同）"),
+              (r"\bdynamic_keymap_(get|set)_keycode\b",              "动态键映射读写（static inline，无独立符号）"),
+              (r"\b(rp2040_flash_|flash_)",                          "RP2040 Flash 驱动（前缀随版本变化）"),
           ]
 
           nm = subprocess.check_output(
@@ -213,29 +222,33 @@ jobs:
               text=True
           )
 
-          def check(items, label, fail_on_missing):
+          def check(items, label):
               missing = []
               print(f"--- {label} ---")
               for pat, desc in items:
                   ok = re.search(pat, nm) is not None
-                  print(f"  {'✅' if ok else '❌'} {pat:60s} {desc}")
+                  print(f"  {'✅' if ok else '❌'} {pat:55s} {desc}")
                   if not ok:
                       missing.append((pat, desc))
               return missing
 
-          req_missing = check(REQUIRED, "REQUIRED（缺失即失败）", True)
-          opt_missing = check(OPTIONAL, "OPTIONAL（缺失仅警告）", False)
+          req_missing = check(REQUIRED, "REQUIRED（缺失即失败）")
+          opt_missing = check(OPTIONAL, "OPTIONAL（缺失仅警告）")
 
           print("")
           if opt_missing:
-              print(f"⚠️ {len(opt_missing)} 个 OPTIONAL 符号缺失（属正常现象，通常是内联/优化导致）：")
+              print(f"⚠️ {len(opt_missing)} 个 OPTIONAL 符号缺失（static inline 或前缀变化，属正常）：")
               for pat, desc in opt_missing:
                   print(f"   - {pat}  ({desc})")
 
           if req_missing:
-              print(f"\n❌ {len(req_missing)} 个 REQUIRED 符号缺失，Vial 或核心 QMK 功能可能失效：")
+              print(f"\n❌ {len(req_missing)} 个 REQUIRED 符号缺失：")
               for pat, desc in req_missing:
                   print(f"   - {pat}  ({desc})")
+              print("\n如果此步骤失败，请检查：")
+              print("  1) rules.mk 中 OPT=0、LTO_ENABLE=no、-fno-inline、--no-gc-sections 是否生效")
+              print("  2) keyboard.json 的 features.vial 是否为 true")
+              print("  3) 是否存在多个 rules.mk 被 QMK 覆盖的问题")
               sys.exit(1)
 
           print(f"\n✅ 所有 {len(REQUIRED)} 个 REQUIRED 符号存在；{len(OPTIONAL) - len(opt_missing)}/{len(OPTIONAL)} 个 OPTIONAL 符号存在")
@@ -249,20 +262,15 @@ jobs:
           cd vial-qmk
           ELF=.build/mx2040_default.elf
 
-          echo "=== 2.6.1 定位 keyboard_definition 符号（兼容两种命名） ==="
+          echo "=== 2.6.1 定位 keyboard_definition 符号 ==="
           SYM=$(arm-none-eabi-nm -S -C --defined-only "$ELF" \
                  | grep -iE "\b(vial_keyboard_definition|keyboard_definition)\b" | head -n 1)
           echo "$SYM"
 
           if [ -z "$SYM" ]; then
-            echo "⚠️ 找不到 keyboard_definition 符号。"
-            echo "   可能原因："
-            echo "   1) vial.json 生成失败（检查 build_vial.mk 与 vial.json 语法）"
-            echo "   2) 该符号被 gc-sections 移除（通常不会，除非 Vial 未被链接）"
-            echo "   下面列出所有含 'definition' 的符号供排查："
+            echo "❌ 找不到 keyboard_definition 符号。"
+            echo "--- 排查：列出所有含 definition 的符号 ---"
             arm-none-eabi-nm -C "$ELF" | grep -i "definition" || true
-            echo ""
-            echo "❌ 无法导出内置 vial.json"
             exit 1
           fi
 
@@ -273,7 +281,7 @@ jobs:
 
           ELF = ".build/mx2040_default.elf"
 
-          # 1) 找到符号（兼容 keyboard_definition / vial_keyboard_definition）
+          # 1) 找到符号
           nm = subprocess.check_output(
               ["arm-none-eabi-nm", "-S", "--print-size", ELF], text=True
           )
@@ -283,15 +291,13 @@ jobs:
           )
           m = sym_pat.search(nm)
           if not m:
-              # 退一步：逐行扫描，兼容没有 size 字段的情况
               for line in nm.splitlines():
                   parts = line.split()
                   if len(parts) >= 4 and parts[3] in ("vial_keyboard_definition", "keyboard_definition"):
                       m = re.match(r'([0-9a-f]+)\s+([0-9a-f]+)', line)
                       break
           if not m:
-              print("❌ 无法定位符号地址/大小")
-              sys.exit(1)
+              print("❌ 无法定位符号地址/大小"); sys.exit(1)
 
           sym_name = m.group(3) if m.lastindex and m.lastindex >= 3 else "(unknown)"
           sym_addr = int(m.group(1), 16)
@@ -299,10 +305,8 @@ jobs:
           print(f"符号名    : {sym_name}")
           print(f"符号地址  : 0x{sym_addr:08X}")
           print(f"符号大小  : {sym_size} 字节")
-
           if sym_size == 0:
-              print("❌ 符号大小为 0")
-              sys.exit(1)
+              print("❌ 符号大小为 0"); sys.exit(1)
 
           # 2) 找包含该符号的段
           sec_out = subprocess.check_output(
@@ -325,11 +329,9 @@ jobs:
           target = None
           for s in sections:
               if s["addr"] <= sym_addr < s["addr"] + s["size"] and s["name"] != ".bss":
-                  target = s
-                  break
+                  target = s; break
           if not target:
-              print("❌ 找不到包含符号的段（可能落在 .bss，无文件内容）")
-              sys.exit(1)
+              print("❌ 找不到包含符号的段"); sys.exit(1)
 
           print(f"所在段    : {target['name']}")
           print(f"段基址    : 0x{target['addr']:08X}")
@@ -341,7 +343,7 @@ jobs:
               raw = f.read(sym_size)
           print(f"读取字节  : {len(raw)} 字节")
 
-          # 4) 尝试解析 JSON（容忍末尾 null / padding）
+          # 4) 解析 JSON（容忍末尾 null / padding）
           stripped = raw.rstrip(b"\x00\x20\x0a\x0d")
           for end in range(len(stripped), 0, -1):
               try:
@@ -371,17 +373,14 @@ jobs:
           SRC = "keyboards/mx2040/vial.json"
           BLD = "builtin_vial.json"
 
-          with open(SRC, encoding="utf-8") as f:
-              src = json.load(f)
-          with open(BLD, encoding="utf-8") as f:
-              bld = json.load(f)
+          with open(SRC, encoding="utf-8") as f: src = json.load(f)
+          with open(BLD, encoding="utf-8") as f: bld = json.load(f)
 
           KEY_FIELDS = ["name", "vendor_id", "product_id", "matrix", "vial"]
           mismatch = [k for k in KEY_FIELDS if src.get(k) != bld.get(k)]
 
           if mismatch:
               print(f"⚠️ 以下字段在源文件与内置 JSON 中不一致：{mismatch}")
-              print("    （如使用不同分支的 QMK 压缩逻辑，属预期；否则请排查）")
           else:
               print("✅ 源 vial.json 与内置 JSON 的关键字段完全一致")
 
@@ -414,8 +413,7 @@ jobs:
           FLASH_BASE = 0x10000000
           FLASH_SIZE = 0x200000
           errors = []
-          with open(UF2_PATH, "rb") as f:
-              data = f.read()
+          with open(UF2_PATH, "rb") as f: data = f.read()
           size = len(data)
           print(f"UF2 文件大小: {size} 字节")
           if size == 0: print("❌ 文件为空"); sys.exit(1)
@@ -434,8 +432,7 @@ jobs:
               if expected_num_blocks is None: expected_num_blocks = num_blocks
               elif expected_num_blocks != num_blocks:
                   errors.append(f"块 {i}: numBlocks={num_blocks} 与期望 {expected_num_blocks} 不符")
-              if block_no != i:
-                  errors.append(f"块 {i}: blockNo={block_no} 不连续")
+              if block_no != i: errors.append(f"块 {i}: blockNo={block_no} 不连续")
               if addr < FLASH_BASE or addr + payload_size > FLASH_BASE + FLASH_SIZE:
                   errors.append(f"块 {i}: 地址 0x{addr:08X} 越界")
               if not (flags & 0x2000) and fam != RP2040_FAMILY:
@@ -443,8 +440,7 @@ jobs:
               addrs.append(addr); psize.append(payload_size)
           if expected_num_blocks != total_blocks:
               errors.append(f"numBlocks={expected_num_blocks} 与实际 {total_blocks} 不符")
-          if addrs != sorted(addrs):
-              errors.append("目标地址未按升序排列")
+          if addrs != sorted(addrs): errors.append("目标地址未按升序排列")
           for i in range(1, len(addrs)):
               if addrs[i] < addrs[i-1] + psize[i-1]:
                   errors.append(f"块 {i} 与块 {i-1} 地址重叠")
