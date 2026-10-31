@@ -14,15 +14,15 @@ jobs:
           packages: build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev ccache
           version: 1.0
 
-      # 2. 缓存 vial-qmk（key 含 rules.mk 哈希，rules.mk 变更即失效）
+      # 2. 缓存 vial-qmk（key 含 rules.mk 哈希；编译目标变更，key 升级 v8）
       - name: Cache vial-qmk source & submodules
         uses: actions/cache@v4
         id: cache_vialqmk
         with:
           path: vial-qmk
-          key: ${{ runner.os }}-vialqmk-vial-v7-${{ hashFiles('.github/workflows/build.yml', 'mx2040/rules.mk') }}
+          key: ${{ runner.os }}-vialqmk-vial-v8-${{ hashFiles('.github/workflows/build.yml', 'mx2040/rules.mk') }}
           restore-keys: |
-            ${{ runner.os }}-vialqmk-vial-v7-
+            ${{ runner.os }}-vialqmk-vial-v8-
             ${{ runner.os }}-vialqmk-vial-
 
       - name: Checkout vial-qmk
@@ -43,6 +43,12 @@ jobs:
 
       - name: Copy keyboard source
         run: cp -r $GITHUB_WORKSPACE/mx2040 vial-qmk/keyboards/
+
+      # 目录结构打印（便于排查 keymaps 路径问题）
+      - name: 打印键盘目录结构
+        run: |
+          echo "=== keyboards/mx2040 目录树 ==="
+          find vial-qmk/keyboards/mx2040 -type f | sort
 
       # 3. ccache 编译缓存
       - name: Setup ccache
@@ -76,18 +82,18 @@ jobs:
           qmk info -kb mx2040
 
       # =========================================================
-      # 编译固件 + 回显编译选项
+      # 编译固件（目标：mx2040:vial）+ 回显编译选项
       # =========================================================
       - name: 编译固件
         run: |
           cd vial-qmk
-          make mx2040:default CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
+          make mx2040:vial CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
           echo ""
           echo "=== 编译选项回显（验证 OPT / LTO 是否生效） ==="
           qmk show_options -kb mx2040 || echo "⚠️ qmk show_options 不可用，改用 fallback"
           echo ""
           echo "=== Fallback: 从 build 目录检查 CFLAGS 中的优化标志 ==="
-          grep -rhoE "\-O[0-3s]|\-flto|\-fno-inline" .build/obj_mx2040_default/ 2>/dev/null | sort -u || true
+          grep -rhoE "\-O[0-3s]|\-flto|\-fno-inline" .build/obj_mx2040_vial/ 2>/dev/null | sort -u || true
 
       - name: ccache 统计
         run: ccache --show-stats
@@ -98,7 +104,7 @@ jobs:
       - name: 验证 ELF 链接（未定义符号 / 入口点）
         run: |
           cd vial-qmk
-          ELF=.build/mx2040_default.elf
+          ELF=.build/mx2040_vial.elf
           test -s "$ELF" || { echo "❌ ELF 文件不存在或为空"; exit 1; }
 
           echo "=== 1.1 未定义符号检查 ==="
@@ -129,7 +135,7 @@ jobs:
       - name: 验证段大小（Flash / RAM）
         run: |
           cd vial-qmk
-          ELF=.build/mx2040_default.elf
+          ELF=.build/mx2040_vial.elf
           echo "=== 2.1 各段大小 ==="
           arm-none-eabi-size -A "$ELF"
 
@@ -137,7 +143,7 @@ jobs:
           python3 << 'PYEOF'
           import subprocess, sys
           out = subprocess.check_output(
-              ["arm-none-eabi-size", "-A", ".build/mx2040_default.elf"], text=True)
+              ["arm-none-eabi-size", "-A", ".build/mx2040_vial.elf"], text=True)
           text = data = bss = 0
           for line in out.splitlines():
               parts = line.split()
@@ -169,7 +175,7 @@ jobs:
       - name: 验证层 2.5 — QMK + Vial 核心符号清单
         run: |
           cd vial-qmk
-          ELF=.build/mx2040_default.elf
+          ELF=.build/mx2040_vial.elf
 
           echo "=== 2.5.1 Vial 核心符号（含 static） ==="
           arm-none-eabi-nm -a -S -C --defined-only "$ELF" \
@@ -219,9 +225,8 @@ jobs:
               (r"\bflash_",                                                "RP2040 Flash 驱动（前缀可能不同）"),
           ]
 
-          # 关键：-a 让 nm 输出 static 符号
           nm = subprocess.check_output(
-              ["arm-none-eabi-nm", "-a", "-C", "--defined-only", ".build/mx2040_default.elf"],
+              ["arm-none-eabi-nm", "-a", "-C", "--defined-only", ".build/mx2040_vial.elf"],
               text=True
           )
 
@@ -251,7 +256,7 @@ jobs:
               print("\n如果此步骤失败，请检查：")
               print("  1) rules.mk 中 OPT=0、LTO_ENABLE=no、-fno-inline、--no-gc-sections 是否生效")
               print("  2) keyboard.json 的 features.vial 是否为 true")
-              print("  3) 是否存在多个 rules.mk 被 QMK 覆盖的问题")
+              print("  3) keymaps/vial/ 目录下是否存在 vial.json 和 keymap.c")
               sys.exit(1)
 
           print(f"\n✅ 所有 {len(REQUIRED)} 个 REQUIRED 符号存在；{len(OPTIONAL) - len(opt_missing)}/{len(OPTIONAL)} 个 OPTIONAL 符号存在")
@@ -263,7 +268,7 @@ jobs:
       - name: 验证层 2.6 — 从 ELF 导出内置 vial.json
         run: |
           cd vial-qmk
-          ELF=.build/mx2040_default.elf
+          ELF=.build/mx2040_vial.elf
 
           echo "=== 2.6.1 定位 keyboard_definition 符号（含 static，兼容两种命名） ==="
           SYM=$(arm-none-eabi-nm -a -S -C --defined-only "$ELF" \
@@ -287,7 +292,7 @@ jobs:
           python3 << 'PYEOF'
           import subprocess, re, sys, json
 
-          ELF = ".build/mx2040_default.elf"
+          ELF = ".build/mx2040_vial.elf"
 
           # 1) 找到符号（-a 包含 static）
           nm = subprocess.check_output(
@@ -299,7 +304,6 @@ jobs:
           )
           m = sym_pat.search(nm)
           if not m:
-              # 退一步：逐行扫描
               for line in nm.splitlines():
                   parts = line.split()
                   if len(parts) >= 4 and parts[3] in ("vial_keyboard_definition", "keyboard_definition"):
@@ -379,7 +383,7 @@ jobs:
           python3 << 'PYEOF'
           import json, sys
 
-          SRC = "keyboards/mx2040/vial.json"
+          SRC = "keyboards/mx2040/keymaps/vial/vial.json"
           BLD = "builtin_vial.json"
 
           with open(SRC, encoding="utf-8") as f: src = json.load(f)
@@ -409,12 +413,12 @@ jobs:
       - name: 验证 UF2 结构（块 / 地址 / familyID）
         run: |
           cd vial-qmk
-          UF2=.build/mx2040_default.uf2
+          UF2=.build/mx2040_vial.uf2
           test -s "$UF2" || { echo "❌ UF2 文件不存在或为空"; exit 1; }
 
           python3 << 'PYEOF'
           import struct, sys
-          UF2_PATH = ".build/mx2040_default.uf2"
+          UF2_PATH = ".build/mx2040_vial.uf2"
           MAGIC_START0 = 0x0A324655
           MAGIC_START1 = 0x9E5D5157
           MAGIC_END    = 0x0AB16F30
@@ -471,18 +475,18 @@ jobs:
         run: |
           cd vial-qmk
           echo "=== 5.1 产物清单 ==="
-          ls -lh .build/mx2040_default.elf \
-                 .build/mx2040_default.uf2 \
-                 .build/mx2040_default.map 2>/dev/null || true
+          ls -lh .build/mx2040_vial.elf \
+                 .build/mx2040_vial.uf2 \
+                 .build/mx2040_vial.map 2>/dev/null || true
           echo "=== 5.2 强制存在性检查 ==="
-          for f in .build/mx2040_default.elf .build/mx2040_default.uf2 .build/mx2040_default.map; do
+          for f in .build/mx2040_vial.elf .build/mx2040_vial.uf2 .build/mx2040_vial.map; do
             if [ ! -s "$f" ]; then
               echo "❌ 产物缺失或为空: $f"; exit 1
             fi
             echo "✅ $f 存在且非空"
           done
           echo "=== 5.3 UF2 大小合理性 ==="
-          UF2_SIZE=$(stat -c%s .build/mx2040_default.uf2)
+          UF2_SIZE=$(stat -c%s .build/mx2040_vial.uf2)
           python3 -c "
           s = ${UF2_SIZE}
           assert 1024 <= s <= 2*1024*1024, f'UF2 大小 {s} 异常'
@@ -497,8 +501,8 @@ jobs:
         with:
           name: MX2040-Vial-Firmware
           path: |
-            vial-qmk/.build/mx2040_default.uf2
-            vial-qmk/.build/mx2040_default.elf
-            vial-qmk/.build/mx2040_default.map
+            vial-qmk/.build/mx2040_vial.uf2
+            vial-qmk/.build/mx2040_vial.elf
+            vial-qmk/.build/mx2040_vial.map
             vial-qmk/builtin_vial.json
           if-no-files-found: error
