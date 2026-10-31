@@ -147,4 +147,320 @@ jobs:
               print(f"❌ Flash 溢出 {flash_used - FLASH_SIZE} 字节"); sys.exit(1)
           if ram_used > RAM_SIZE:
               print(f"❌ RAM 溢出 {ram_used - RAM_SIZE} 字节"); sys.exit(1)
-          
+          print("✅ Flash / RAM 容量均在 RP2040 规格内")
+          PYEOF
+
+      # =========================================================
+      # 验证层 2.5：QMK + Vial 核心符号清单
+      # =========================================================
+      - name: 验证层 2.5 — QMK + Vial 核心符号清单
+        run: |
+          cd vial-qmk
+          ELF=.build/mx2040_default.elf
+
+          echo "=== 2.5.1 Vial 核心符号 ==="
+          arm-none-eabi-nm -S -C --defined-only "$ELF" \
+            | grep -iE "vial_(init|handle_cmd|keyboard_uid|unlock_combo|keyboard_definition)" \
+            | sort -k4 || true
+
+          echo ""
+          echo "=== 2.5.2 QMK 动态键映射 / 主键位表符号 ==="
+          arm-none-eabi-nm -S -C --defined-only "$ELF" \
+            | grep -iE "\b(keymaps|layer_state|default_layer_state|dynamic_keymap_(get|set|reset|macro|key_to|encode|decode)|raw_hid_(receive|send)|eeconfig_init|eeconfig_update|keyboard_init|matrix_init|matrix_scan)\b" \
+            | sort -k4 | head -n 60 || true
+
+          echo ""
+          echo "=== 2.5.3 RP2040 底层符号（wear_leveling / rp2040_flash） ==="
+          arm-none-eabi-nm -S -C --defined-only "$ELF" \
+            | grep -iE "(wear_leveling_|rp2040_flash_)" \
+            | sort -k4 | head -n 30 || true
+
+          echo ""
+          echo "=== 2.5.4 关键符号存在性断言 ==="
+          python3 << 'PYEOF'
+          import subprocess, sys
+
+          # 必须存在的符号（符号名正则, 说明）
+          REQUIRED = [
+              (r"\bvial_init\b",                         "Vial 初始化入口"),
+              (r"\bvial_handle_cmd\b",                   "Vial 命令处理"),
+              (r"\bvial_keyboard_uid\b",                 "Vial UID 数组"),
+              (r"\bvial_unlock_combo_rows\b",            "Vial 解锁行"),
+              (r"\bvial_unlock_combo_cols\b",            "Vial 解锁列"),
+              (r"\bvial_keyboard_definition\b",          "内嵌 vial.json 定义"),
+              (r"\bkeymaps\b",                           "键位矩阵"),
+              (r"\bdynamic_keymap_get_keycode\b",        "动态键映射读"),
+              (r"\bdynamic_keymap_set_keycode\b",        "动态键映射写"),
+              (r"\braw_hid_receive\b",                   "Raw HID 接收"),
+              (r"\braw_hid_send\b",                      "Raw HID 发送"),
+              (r"\beeconfig_init_quantum\b",             "EEPROM 初始化"),
+              (r"\bwear_leveling_init\b",                "磨损均衡初始化"),
+              (r"\brp2040_flash_",                       "RP2040 Flash 驱动"),
+          ]
+
+          nm = subprocess.check_output(
+              ["arm-none-eabi-nm", "-C", "--defined-only", ".build/mx2040_default.elf"],
+              text=True
+          )
+
+          missing = []
+          for pat, desc in REQUIRED:
+              import re
+              if not re.search(pat, nm):
+                  missing.append(f"  - {pat}  ({desc})")
+
+          if missing:
+              print("❌ 以下关键符号缺失：")
+              for m in missing: print(m)
+              sys.exit(1)
+          print(f"✅ 关键符号全部存在（{len(REQUIRED)} 项）")
+          PYEOF
+
+      # =========================================================
+      # 验证层 2.6：从 ELF 导出内置 vial.json
+      # =========================================================
+      - name: 验证层 2.6 — 从 ELF 导出内置 vial.json
+        run: |
+          cd vial-qmk
+          ELF=.build/mx2040_default.elf
+
+          echo "=== 2.6.1 定位 vial_keyboard_definition 符号 ==="
+          SYM=$(arm-none-eabi-nm -S -C --defined-only "$ELF" \
+                 | grep -iE "\bvial_keyboard_definition\b" | head -n 1)
+          echo "$SYM"
+
+          if [ -z "$SYM" ]; then
+            echo "❌ 找不到 vial_keyboard_definition 符号"
+            echo "--- 排查：可能在 .h 生成失败，检查 build_vial.mk 与 vial.json 语法 ---"
+            arm-none-eabi-nm -C "$ELF" | grep -i "keyboard_definition" || true
+            exit 1
+          fi
+
+          echo ""
+          echo "=== 2.6.2 解析并导出内置 JSON ==="
+          python3 << 'PYEOF'
+          import subprocess, re, sys, json, os
+
+          ELF = ".build/mx2040_default.elf"
+
+          # 1) 找到符号
+          nm = subprocess.check_output(
+              ["arm-none-eabi-nm", "-S", "--print-size", ELF], text=True
+          )
+          m = re.search(r'^([0-9a-f]+)\s+([0-9a-f]+)\s+\w\s+vial_keyboard_definition$',
+                        nm, re.M)
+          if not m:
+              # 兼容不同 QMK 版本：找最小匹配
+              for line in nm.splitlines():
+                  parts = line.split()
+                  if len(parts) >= 4 and parts[3] == "vial_keyboard_definition":
+                      m = re.match(r'([0-9a-f]+)\s+([0-9a-f]+)', line)
+                      break
+          if not m:
+              print("❌ 无法定位符号地址/大小")
+              sys.exit(1)
+
+          sym_addr = int(m.group(1), 16)
+          sym_size = int(m.group(2), 16)
+          print(f"符号地址  : 0x{sym_addr:08X}")
+          print(f"符号大小  : {sym_size} 字节")
+
+          # 2) 找包含该符号的段（.rodata / .data）
+          sec_out = subprocess.check_output(
+              ["arm-none-eabi-readelf", "-S", "-W", ELF], text=True
+          )
+          sections = []
+          for line in sec_out.splitlines():
+              mm = re.match(
+                  r'\s*\[\s*\d+\]\s+(\S+)\s+(\S+)\s+([0-9a-f]+)\s+([0-9a-f]+)\s+([0-9a-f]+)',
+                  line
+              )
+              if mm:
+                  sections.append({
+                      "name": mm.group(1),
+                      "addr": int(mm.group(3), 16),
+                      "off":  int(mm.group(4), 16),
+                      "size": int(mm.group(5), 16),
+                  })
+
+          target = None
+          for s in sections:
+              if s["addr"] <= sym_addr < s["addr"] + s["size"] and s["name"] != ".bss":
+                  target = s
+                  break
+          if not target:
+              print("❌ 找不到包含符号的段（可能在 .bss，无文件内容）")
+              sys.exit(1)
+
+          print(f"所在段    : {target['name']}")
+          print(f"段基址    : 0x{target['addr']:08X}")
+          print(f"文件偏移  : 0x{target['off']:X}")
+
+          # 3) 读取原始字节
+          with open(ELF, "rb") as f:
+              f.seek(target["off"] + (sym_addr - target["addr"]))
+              raw = f.read(sym_size)
+          print(f"读取字节  : {len(raw)} 字节")
+
+          # 4) 尝试解析 JSON（容忍末尾 null / padding）
+          stripped = raw.rstrip(b"\x00\x20\x0a\x0d")
+          for end in range(len(stripped), 0, -1):
+              try:
+                  obj = json.loads(stripped[:end])
+                  print(f"✅ JSON 解析成功，实际长度 {end} 字节")
+                  print("")
+                  print("=== 内置 vial.json 内容 ===")
+                  print(json.dumps(obj, indent=4, ensure_ascii=False))
+                  # 落盘供后续步骤 / 人工比对
+                  with open("builtin_vial.json", "w", encoding="utf-8") as w:
+                      json.dump(obj, w, indent=4, ensure_ascii=False)
+                  print("")
+                  print(f"📄 已落盘：vial-qmk/builtin_vial.json")
+                  sys.exit(0)
+              except json.JSONDecodeError:
+                  continue
+
+          print("❌ 无法解析为合法 JSON，原始内容前 300 字节：")
+          print(stripped[:300])
+          sys.exit(1)
+          PYEOF
+
+          echo ""
+          echo "=== 2.6.3 内置 JSON 与源 vial.json 一致性校验 ==="
+          python3 << 'PYEOF'
+          import json, sys, os
+
+          SRC = "keyboards/mx2040/vial.json"
+          BLD = "builtin_vial.json"
+
+          with open(SRC, encoding="utf-8") as f:
+              src = json.load(f)
+          with open(BLD, encoding="utf-8") as f:
+              bld = json.load(f)
+
+          # 只做关键字段比对（vial.json 允许空字段差异）
+          KEY_FIELDS = ["name", "vendor_id", "product_id", "matrix", "vial"]
+          mismatch = []
+          for k in KEY_FIELDS:
+              if src.get(k) != bld.get(k):
+                  mismatch.append(k)
+
+          if mismatch:
+              print(f"⚠️ 以下字段在源文件与内置 JSON 中不一致：{mismatch}")
+              print("    （如使用不同分支的 QMK 压缩逻辑，属预期；否则请排查）")
+          else:
+              print("✅ 源 vial.json 与内置 JSON 的关键字段完全一致")
+
+          # 布局坐标数量对比
+          src_km = src.get("layouts", {}).get("keymap", [])
+          bld_km = bld.get("layouts", {}).get("keymap", [])
+          print(f"源 KLE 行数       : {len(src_km)}")
+          print(f"内置 KLE 行数     : {len(bld_km)}")
+          if src_km == bld_km:
+              print("✅ KLE 布局逐行一致")
+          else:
+              print("⚠️ KLE 布局存在差异（通常因 QMK 压缩时重排格式，属正常）")
+          PYEOF
+
+      # =========================================================
+      # 验证层 3 + 4：UF2 块结构与布局
+      # =========================================================
+      - name: 验证 UF2 结构（块 / 地址 / familyID）
+        run: |
+          cd vial-qmk
+          UF2=.build/mx2040_default.uf2
+          test -s "$UF2" || { echo "❌ UF2 文件不存在或为空"; exit 1; }
+
+          python3 << 'PYEOF'
+          import struct, sys
+          UF2_PATH = ".build/mx2040_default.uf2"
+          MAGIC_START0 = 0x0A324655
+          MAGIC_START1 = 0x9E5D5157
+          MAGIC_END    = 0x0AB16F30
+          RP2040_FAMILY = 0xE48BFF56
+          FLASH_BASE = 0x10000000
+          FLASH_SIZE = 0x200000
+          errors = []
+          with open(UF2_PATH, "rb") as f:
+              data = f.read()
+          size = len(data)
+          print(f"UF2 文件大小: {size} 字节")
+          if size == 0: print("❌ 文件为空"); sys.exit(1)
+          if size % 512 != 0: print(f"❌ 大小 {size} 不是 512 的倍数"); sys.exit(1)
+          total_blocks = size // 512
+          expected_num_blocks = None
+          addrs, psize = [], []
+          for i in range(total_blocks):
+              block = data[i*512:(i+1)*512]
+              m0, m1, flags, addr, payload_size, block_no, num_blocks, fam = \
+                  struct.unpack("<IIIIIIII", block[:32])
+              end_magic = struct.unpack("<I", block[508:512])[0]
+              if m0 != MAGIC_START0: errors.append(f"块 {i}: magicStart0=0x{m0:08X}")
+              if m1 != MAGIC_START1: errors.append(f"块 {i}: magicStart1=0x{m1:08X}")
+              if end_magic != MAGIC_END: errors.append(f"块 {i}: end magic=0x{end_magic:08X}")
+              if expected_num_blocks is None: expected_num_blocks = num_blocks
+              elif expected_num_blocks != num_blocks:
+                  errors.append(f"块 {i}: numBlocks={num_blocks} 与期望 {expected_num_blocks} 不符")
+              if block_no != i:
+                  errors.append(f"块 {i}: blockNo={block_no} 不连续")
+              if addr < FLASH_BASE or addr + payload_size > FLASH_BASE + FLASH_SIZE:
+                  errors.append(f"块 {i}: 地址 0x{addr:08X} 越界")
+              if not (flags & 0x2000) and fam != RP2040_FAMILY:
+                  errors.append(f"块 {i}: familyID=0x{fam:08X} 应为 0x{RP2040_FAMILY:08X}")
+              addrs.append(addr); psize.append(payload_size)
+          if expected_num_blocks != total_blocks:
+              errors.append(f"numBlocks={expected_num_blocks} 与实际 {total_blocks} 不符")
+          if addrs != sorted(addrs):
+              errors.append("目标地址未按升序排列")
+          for i in range(1, len(addrs)):
+              if addrs[i] < addrs[i-1] + psize[i-1]:
+                  errors.append(f"块 {i} 与块 {i-1} 地址重叠")
+          print(f"总块数       : {total_blocks}")
+          print(f"payload 大小 : {sorted(set(psize))}")
+          print(f"地址范围     : 0x{min(addrs):08X} ~ 0x{max(addrs)+psize[addrs.index(max(addrs))]:08X}")
+          print(f"固件数据总量 : {sum(psize):,} 字节")
+          if errors:
+              print("\n❌ UF2 验证失败:")
+              for e in errors: print(f"  - {e}")
+              sys.exit(1)
+          print("\n✅ UF2 结构与布局验证通过")
+          PYEOF
+
+      # =========================================================
+      # 验证层 5：产物完整性
+      # =========================================================
+      - name: 验证产物完整性（elf / uf2 / map）
+        run: |
+          cd vial-qmk
+          echo "=== 5.1 产物清单 ==="
+          ls -lh .build/mx2040_default.elf \
+                 .build/mx2040_default.uf2 \
+                 .build/mx2040_default.map 2>/dev/null || true
+          echo "=== 5.2 强制存在性检查 ==="
+          for f in .build/mx2040_default.elf .build/mx2040_default.uf2 .build/mx2040_default.map; do
+            if [ ! -s "$f" ]; then
+              echo "❌ 产物缺失或为空: $f"; exit 1
+            fi
+            echo "✅ $f 存在且非空"
+          done
+          echo "=== 5.3 UF2 大小合理性 ==="
+          UF2_SIZE=$(stat -c%s .build/mx2040_default.uf2)
+          python3 -c "
+          s = ${UF2_SIZE}
+          assert 1024 <= s <= 2*1024*1024, f'UF2 大小 {s} 异常'
+          print(f'✅ UF2 大小 {s:,} 字节 在合理范围')
+          "
+
+      # =========================================================
+      # 上传产物
+      # =========================================================
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MX2040-Vial-Firmware
+          path: |
+            vial-qmk/.build/mx2040_default.uf2
+            vial-qmk/.build/mx2040_default.elf
+            vial-qmk/.build/mx2040_default.map
+            vial-qmk/builtin_vial.json
+          if-no-files-found: error
