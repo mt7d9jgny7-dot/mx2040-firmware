@@ -79,7 +79,7 @@ jobs:
       - name: 编译固件
         run: |
           cd vial-qmk
-          make mx2040:default CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
+          make mx2040:vial CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
 
       - name: ccache统计
         run: ccache --show-stats
