@@ -41,6 +41,7 @@ jobs:
           git pull origin vial
           git submodule update --init --recursive
 
+      # 先清理旧目录，防止残留文件干扰
       - name: Clean old keyboard dir
         run: rm -rf vial-qmk/keyboards/mx2040
 
@@ -78,7 +79,7 @@ jobs:
           cd vial-qmk
           qmk info -kb mx2040
 
-      # 编译固件（ARM 交叉编译器 + ccache）
+      # 编译固件（使用 vial keymap）
       - name: 编译固件
         run: |
           cd vial-qmk
@@ -87,17 +88,19 @@ jobs:
       - name: ccache统计
         run: ccache --show-stats
 
+      # 修复点：这里查找的路径改为了 mx2040_vial
       - name: 验证固件文件
         run: |
           cd vial-qmk
           echo "=== 固件段大小统计 ==="
-          arm-none-eabi-size .build/mx2040_default.elf
+          arm-none-eabi-size .build/mx2040_vial.elf
           echo -e "\n=== UF2 文件大小 ==="
-          ls -lh .build/mx2040_default.uf2
-          test -s .build/mx2040_default.uf2
+          ls -lh .build/mx2040_vial.uf2
+          test -s .build/mx2040_vial.uf2
 
+      # 修复点：上传的路径也改为了 mx2040_vial
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MX2040-Vial-Firmware
-          path: vial-qmk/.build/mx2040_default.uf2
+          path: vial-qmk/.build/mx2040_vial.uf2
