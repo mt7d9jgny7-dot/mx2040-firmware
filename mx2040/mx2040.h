@@ -1,7 +1,7 @@
 #pragma once
 #include "quantum.h"
 
-/* 8行18列正交矩阵布局宏（与 keyboard.json 一一对应） */
+#ifndef LAYOUT
 #define LAYOUT( \
     k00, k01, k02, k03, k04, k05, k06, k07, k08, k09, k010, k011, k012, k013, k014, k015, k016, k017, \
     k10, k11, k12, k13, k14, k15, k16, k17, k18, k19, k110, k111, k112, k113, k114, k115, k116, k117, \
@@ -21,3 +21,4 @@
     { k60, k61, k62, k63, k64, k65, k66, k67, k68, k69, k610, k611, k612, k613, k614, k615, k616, k617 }, \
     { k70, k71, k72, k73, k74, k75, k76, k77, k78, k79, k710, k711, k712, k713, k714, k715, k716, k717 }  \
 }
+#endif
