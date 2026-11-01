@@ -1,6 +1,8 @@
 PLATFORM = RP2040
 BOOTLOADER = rp2040
 
+KEY_LOCK_ENABLE = yes
+
 # ========== VIAL 配置 ==========
 VIAL_INSECURE = no
 

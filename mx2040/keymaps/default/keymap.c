@@ -24,7 +24,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         KC_WBAK,  KC_WFWD,   KC_WREF,  KC_WSTP,  KC_WFAV,   KC_F13,   KC_F14,   KC_F15,   KC_F16,    KC_F17,    KC_F18,    KC_F19,    KC_F20,    KC_F21,    KC_F22,    KC_F23,     KC_F24,         KC_PSCR,
 
         /* Row 2: 系统控制 + 编辑键 + 数字键盘上部 */
-        KC_PWR,   KC_SLEP,   KC_WAKE,  KC_LOCK,  KC_APP,    KC_PAUS,  KC_SCRL,  KC_NUM,   KC_INS,    KC_DEL,    KC_HOME,   KC_END,    KC_PGUP,   KC_PGDN,   KC_KP_7,   KC_KP_PLUS, KC_KP_8,        KC_KP_9,
+        KC_PWR,   KC_SLEP,   KC_WAKE,  QK_LOCK,  KC_APP,    KC_PAUS,  KC_SCRL,  KC_NUM,   KC_INS,    KC_DEL,    KC_HOME,   KC_END,    KC_PGUP,   KC_PGDN,   KC_KP_7,   KC_KP_PLUS, KC_KP_8,        KC_KP_9,
 
         /* Row 3: 鼠标控制 + 数字键盘中部 */
         KC_ACL0,  KC_ACL1,   KC_ACL2,  KC_MS_U,  KC_WH_U,   KC_MS_L,  KC_MS_D,  KC_MS_R,  KC_WH_D,   KC_BTN1,   KC_BTN2,   KC_BTN3,   KC_BTN4,   KC_BTN5,   KC_KP_1,   KC_KP_ENTER,KC_KP_2,        KC_KP_3,
