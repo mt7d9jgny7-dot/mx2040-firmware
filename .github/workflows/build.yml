@@ -41,6 +41,9 @@ jobs:
           git pull origin vial
           git submodule update --init --recursive
 
+      - name: Clean old keyboard dir
+        run: rm -rf vial-qmk/keyboards/mx2040
+
       - name: Copy keyboard source
         run: cp -r $GITHUB_WORKSPACE/mx2040 vial-qmk/keyboards/
 
