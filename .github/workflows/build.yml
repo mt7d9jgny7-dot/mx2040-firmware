@@ -14,15 +14,15 @@ jobs:
           packages: build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev ccache
           version: 1.0
 
-      # 2. 缓存 vial-qmk（key 含 rules.mk 哈希；编译目标变更，key 升级 v8）
+      # 2. 缓存 vial-qmk（key 升级 v9）
       - name: Cache vial-qmk source & submodules
         uses: actions/cache@v4
         id: cache_vialqmk
         with:
           path: vial-qmk
-          key: ${{ runner.os }}-vialqmk-vial-v8-${{ hashFiles('.github/workflows/build.yml', 'mx2040/rules.mk') }}
+          key: ${{ runner.os }}-vialqmk-vial-v9-${{ hashFiles('.github/workflows/build.yml', 'mx2040/rules.mk') }}
           restore-keys: |
-            ${{ runner.os }}-vialqmk-vial-v8-
+            ${{ runner.os }}-vialqmk-vial-v9-
             ${{ runner.os }}-vialqmk-vial-
 
       - name: Checkout vial-qmk
@@ -44,7 +44,7 @@ jobs:
       - name: Copy keyboard source
         run: cp -r $GITHUB_WORKSPACE/mx2040 vial-qmk/keyboards/
 
-      # 目录结构打印（便于排查 keymaps 路径问题）
+      # 打印目录结构（便于排查）
       - name: 打印键盘目录结构
         run: |
           echo "=== keyboards/mx2040 目录树 ==="
@@ -82,14 +82,14 @@ jobs:
           qmk info -kb mx2040
 
       # =========================================================
-      # 编译固件（目标：mx2040:vial）+ 回显编译选项
+      # 编译固件（目标：mx2040:vial）
       # =========================================================
       - name: 编译固件
         run: |
           cd vial-qmk
           make mx2040:vial CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
           echo ""
-          echo "=== 编译选项回显（验证 OPT / LTO 是否生效） ==="
+          echo "=== 编译选项回显 ==="
           qmk show_options -kb mx2040 || echo "⚠️ qmk show_options 不可用，改用 fallback"
           echo ""
           echo "=== Fallback: 从 build 目录检查 CFLAGS 中的优化标志 ==="
@@ -383,6 +383,7 @@ jobs:
           python3 << 'PYEOF'
           import json, sys
 
+          # 👇 路径已修正为 keymaps/vial/vial.json
           SRC = "keyboards/mx2040/keymaps/vial/vial.json"
           BLD = "builtin_vial.json"
 
