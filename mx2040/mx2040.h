@@ -1,8 +1,7 @@
 #pragma once
 #include "quantum.h"
 
-/* 8行18列正交矩阵布局宏
-   与 keyboard.json 布局一一对应，用于 C 编译展开键位数组 */
+/* 8行18列正交矩阵布局宏（与 keyboard.json 一一对应） */
 #define LAYOUT( \
     k00, k01, k02, k03, k04, k05, k06, k07, k08, k09, k010, k011, k012, k013, k014, k015, k016, k017, \
     k10, k11, k12, k13, k14, k15, k16, k17, k18, k19, k110, k111, k112, k113, k114, k115, k116, k117, \

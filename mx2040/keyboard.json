@@ -39,8 +39,8 @@
         "enabled": true,
         "uid": [122, 63, 157, 44, 91, 142, 31, 74],
         "unlock_combo": {
-            "rows": [6, 0],
-            "cols": [1, 2]
+            "rows": [5, 2],
+            "cols": [9, 9]
         }
     },
     "layouts": {
