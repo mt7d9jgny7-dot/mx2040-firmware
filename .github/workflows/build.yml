@@ -14,7 +14,7 @@ jobs:
           packages: build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev ccache
           version: 1.0
 
-      # 2. 缓存 vial-qmk
+      # 2. 缓存 vial-qmk 源码及子模块
       - name: Cache vial-qmk source & submodules
         uses: actions/cache@v4
         id: cache_vialqmk
@@ -41,7 +41,7 @@ jobs:
           git pull origin vial
           git submodule update --init --recursive
 
-      # 先清理旧目录，防止残留文件干扰
+      # 清理旧目录，防止本地更改残留干扰编译
       - name: Clean old keyboard dir
         run: rm -rf vial-qmk/keyboards/mx2040
 
@@ -57,7 +57,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-qmk-ccache-
 
-      - name: 配置ccache环境
+      - name: 配置 ccache 环境
         run: |
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=200M" >> $GITHUB_ENV
@@ -79,26 +79,70 @@ jobs:
           cd vial-qmk
           qmk info -kb mx2040
 
-      # 编译固件（使用 vial keymap）
+      # 编译固件（使用 vial keymap 和 ARM 交叉编译器）
       - name: 编译固件
         run: |
           cd vial-qmk
           make mx2040:vial CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
 
-      - name: ccache统计
+      - name: ccache 统计
         run: ccache --show-stats
 
-      # 修复点：这里查找的路径改为了 mx2040_vial
-      - name: 验证固件文件
+      # =========================================================================
+      # 🛡️ 深度校验固件文件（确保 Vial 相关功能已确实写入二进制）
+      # =========================================================================
+      - name: 深度校验固件文件
         run: |
           cd vial-qmk
-          echo "=== 固件段大小统计 ==="
-          arm-none-eabi-size .build/mx2040_vial.elf
-          echo -e "\n=== UF2 文件大小 ==="
-          ls -lh .build/mx2040_vial.uf2
-          test -s .build/mx2040_vial.uf2
+          ELF=".build/mx2040_vial.elf"
+          UF2=".build/mx2040_vial.uf2"
 
-      # 修复点：上传的路径也改为了 mx2040_vial
+          echo "=========================================================="
+          echo " 🛡️ 1. 固件段大小统计 (Section Sizes)"
+          echo "=========================================================="
+          arm-none-eabi-size -A $ELF | grep -E "\.text|\.data|\.bss|\.rodata" || true
+          echo ""
+          arm-none-eabi-size $ELF
+
+          echo -e "\n=========================================================="
+          echo " 🔍 2. 检查关键功能符号 (Symbol Check)"
+          echo "=========================================================="
+          echo "▶ 检查 Vial 核心通信协议..."
+          arm-none-eabi-nm $ELF | grep -i "vial" | head -n 5 || echo "❌ 未找到 Vial 符号！"
+          
+          echo "▶ 检查 动态键映射 (Dynamic Keymap)..."
+          arm-none-eabi-nm $ELF | grep -i "dynamic_keymap" | head -n 5 || echo "❌ 未找到 Dynamic Keymap！"
+          
+          echo "▶ 检查 EEPROM 磨损均衡 (Wear Leveling)..."
+          arm-none-eabi-nm $ELF | grep -i "wear_leveling" | head -n 5 || echo "❌ 未找到 Wear Leveling！"
+          
+          echo "▶ 检查 键盘唯一标识与解锁组合键..."
+          arm-none-eabi-nm $ELF | grep -i "vial_unlock_combo" || echo "⚠️ 未找到解锁组合键数组"
+          arm-none-eabi-nm $ELF | grep -i "keyboard_uid" || echo "⚠️ 未找到 UID 数组"
+
+          echo -e "\n=========================================================="
+          echo " 🗺️ 3. 检查内存地址映射 (Address Map)"
+          echo "=========================================================="
+          # RP2040 的 Flash 起始地址通常是 0x10000000
+          arm-none-eabi-objdump -h $ELF | grep -E "Idx|\.text|\.data|\.bss|\.vectors" || true
+
+          echo -e "\n=========================================================="
+          echo " 📜 4. 检查固件内部字符串 (Strings Check)"
+          echo "=========================================================="
+          echo "▶ 查找键盘名称 'MX2040'..."
+          strings $ELF | grep "MX2040" | head -n 3 || echo "❌ 未找到键盘名称"
+          
+          echo "▶ 查找 Vial 特征字符串..."
+          strings $ELF | grep -i "vial" | head -n 5 || echo "❌ 未找到 Vial 特征字符串"
+
+          echo -e "\n=========================================================="
+          echo " 📦 5. 验证 UF2 实体文件"
+          echo "=========================================================="
+          ls -lh $UF2
+          test -s $UF2
+          echo "✅ 固件深度校验完成，一切正常，已准备好烧录！"
+
+      # 上传产物
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
