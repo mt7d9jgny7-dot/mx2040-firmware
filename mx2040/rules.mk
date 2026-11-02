@@ -1,6 +1,9 @@
 PLATFORM = RP2040
 BOOTLOADER = rp2040
 
+# RP2040 必需：指定串行驱动以确保正确生成 USB 序列号
+SERIAL_DRIVER = vendor
+
 KEY_LOCK_ENABLE = yes
 
 # ========== VIAL 配置 ==========
