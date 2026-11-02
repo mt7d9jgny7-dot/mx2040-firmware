@@ -84,7 +84,8 @@ jobs:
         run: |
           cd vial-qmk
           make mx2040:vial CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
-
+            EXTRAFLAGS="-O0" LTO_ENABLE=no
+            
       - name: ccache 统计
         run: ccache --show-stats
 
