@@ -86,15 +86,23 @@ jobs:
           
           echo "▶ 检查 EEPROM 磨损均衡 (Wear Leveling)..."
           arm-none-eabi-nm $ELF | grep -i "wear_leveling" | head -n 5 || echo "❌ 未找到 Wear Leveling！"
+          
+          echo "▶ 检查 键盘唯一标识与解锁组合键..."
+          arm-none-eabi-nm $ELF | grep -i "vial_unlock_combo" || echo "⚠️ 未找到解锁组合键数组"
+          arm-none-eabi-nm $ELF | grep -i "keyboard_uid" || echo "⚠️ 未找到 UID 数组"
 
           echo -e "\n=========================================================="
           echo " 🗺️ 3. 检查内存地址映射 (Address Map)"
           echo "=========================================================="
+          # RP2040 的 Flash 起始地址通常是 0x10000000
           arm-none-eabi-objdump -h $ELF | grep -E "Idx|\.text|\.data|\.bss|\.vectors" || true
 
           echo -e "\n=========================================================="
           echo " 📜 4. 检查固件内部字符串 (Strings Check)"
           echo "=========================================================="
+          echo "▶ 查找键盘名称 'MX2040'..."
+          strings $ELF | grep "MX2040" | head -n 3 || echo "❌ 未找到键盘名称"
+          
           echo "▶ 查找 Vial 特征字符串..."
           strings $ELF | grep -i "vial" | head -n 5 || echo "❌ 未找到 Vial 特征字符串"
 
