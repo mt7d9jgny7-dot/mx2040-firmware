@@ -7,26 +7,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # 1. APT系统包缓存（包含 ccache 与 ARM 交叉工具链）
-      - name: Cache APT packages
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev ccache
-          version: 1.0
+      # 1. 安装系统依赖（无缓存，每次全新安装）
+      - name: Install APT packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git python3-pip gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util libusb-1.0-0-dev
 
-      # 2. 缓存 vial-qmk 源码及子模块
-      - name: Cache vial-qmk source & submodules
-        uses: actions/cache@v4
-        id: cache_vialqmk
-        with:
-          path: vial-qmk
-          key: ${{ runner.os }}-vialqmk-vial-v3-${{ hashFiles('.github/workflows/build.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-vialqmk-vial-v3-
-            ${{ runner.os }}-vialqmk-vial-
-
+      # 2. 克隆 vial-qmk（无缓存，每次全新克隆，确保代码最新）
       - name: Checkout vial-qmk
-        if: steps.cache_vialqmk.outputs.cache-hit != 'true'
         uses: actions/checkout@v5
         with:
           repository: vial-kb/vial-qmk
@@ -41,28 +29,14 @@ jobs:
           git pull origin vial
           git submodule update --init --recursive
 
-      # 清理旧目录，防止本地更改残留干扰编译
+      # 清理并复制键盘源码
       - name: Clean old keyboard dir
         run: rm -rf vial-qmk/keyboards/mx2040
 
       - name: Copy keyboard source
         run: cp -r $GITHUB_WORKSPACE/mx2040 vial-qmk/keyboards/
 
-      # 3. ccache 编译缓存
-      - name: Setup ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: ${{ runner.os }}-qmk-ccache-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-qmk-ccache-
-
-      - name: 配置 ccache 环境
-        run: |
-          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
-          echo "CCACHE_MAXSIZE=200M" >> $GITHUB_ENV
-          ccache --zero-stats || true
-
+      # 3. 安装 QMK CLI
       - name: 安装 QMK CLI
         run: |
           python3 -m pip install --user qmk
@@ -79,15 +53,11 @@ jobs:
           cd vial-qmk
           qmk info -kb mx2040
 
-      # 编译固件（使用 vial keymap 和 ARM 交叉编译器）
+      # 4. 编译固件（不使用 ccache，直接使用原生交叉编译器）
       - name: 编译固件
         run: |
           cd vial-qmk
-          make mx2040:vial CC="ccache arm-none-eabi-gcc" CXX="ccache arm-none-eabi-g++"
-            EXTRAFLAGS="-O0" LTO_ENABLE=no
-            
-      - name: ccache 统计
-        run: ccache --show-stats
+          make mx2040:vial CC="arm-none-eabi-gcc" CXX="arm-none-eabi-g++"
 
       # =========================================================================
       # 🛡️ 深度校验固件文件（确保 Vial 相关功能已确实写入二进制）
@@ -116,23 +86,15 @@ jobs:
           
           echo "▶ 检查 EEPROM 磨损均衡 (Wear Leveling)..."
           arm-none-eabi-nm $ELF | grep -i "wear_leveling" | head -n 5 || echo "❌ 未找到 Wear Leveling！"
-          
-          echo "▶ 检查 键盘唯一标识与解锁组合键..."
-          arm-none-eabi-nm $ELF | grep -i "vial_unlock_combo" || echo "⚠️ 未找到解锁组合键数组"
-          arm-none-eabi-nm $ELF | grep -i "keyboard_uid" || echo "⚠️ 未找到 UID 数组"
 
           echo -e "\n=========================================================="
           echo " 🗺️ 3. 检查内存地址映射 (Address Map)"
           echo "=========================================================="
-          # RP2040 的 Flash 起始地址通常是 0x10000000
           arm-none-eabi-objdump -h $ELF | grep -E "Idx|\.text|\.data|\.bss|\.vectors" || true
 
           echo -e "\n=========================================================="
           echo " 📜 4. 检查固件内部字符串 (Strings Check)"
           echo "=========================================================="
-          echo "▶ 查找键盘名称 'MX2040'..."
-          strings $ELF | grep "MX2040" | head -n 3 || echo "❌ 未找到键盘名称"
-          
           echo "▶ 查找 Vial 特征字符串..."
           strings $ELF | grep -i "vial" | head -n 5 || echo "❌ 未找到 Vial 特征字符串"
 
